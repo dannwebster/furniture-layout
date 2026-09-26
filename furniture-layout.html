@@ -1,0 +1,1188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bedroom Layout</title>
+<style>
+  :root {
+    --bg: #f4f1ec;
+    --panel: #ffffff;
+    --ink: #2a2622;
+    --muted: #7a726a;
+    --line: #e2dcd3;
+    --accent: #2563eb;
+    --danger: #c62828;
+    --wall: #3b3530;
+    --floor: #fbf8f3;
+    --wood: #d4ae84;
+    --wood-edge: #6b4526;
+    --chair: #a9bedb;
+    --chair-edge: #3f5f8f;
+    --window: #8ec5ea;
+    --rug: #cdd6b8;
+    --rug-edge: #8a9670;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--ink); background: var(--bg);
+    display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  header .room { color: var(--muted); }
+  header .spacer { flex: 1; }
+  #saveStatus { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  #saveStatus b { color: var(--ink); }
+  #saveStatus .ok { color: #2e7d32; }
+  #saveStatus .warn { color: #b26a00; }
+  button {
+    font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 6px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer;
+  }
+  button:hover { border-color: #bdb4a8; background: #faf8f5; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #1d4fd0; }
+  main { display: grid; grid-template-columns: 320px 1fr; min-height: 0; }
+  aside {
+    background: var(--panel); border-right: 1px solid var(--line);
+    overflow-y: auto; padding: 12px 14px 24px;
+  }
+  .panel { margin-bottom: 18px; }
+  .panel h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 0 0 8px;
+  }
+  .btnrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .group-title { font-weight: 600; margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
+  .item {
+    display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer;
+  }
+  .item:hover { background: #f6f3ee; }
+  .item.selected { background: #e8efff; }
+  .item.bad .name { color: var(--danger); }
+  .item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .dims { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .item input { margin: 0; }
+  #inspector h3 { margin: 0 0 2px; font-size: 15px; }
+  .fields { display: grid; gap: 8px; margin: 10px 0; }
+  .fields label { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
+  .fields input, select {
+    font: inherit; font-size: 14px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink);
+  }
+  .fields input.invalid { border-color: var(--danger); background: #fff5f5; }
+  .clearance { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; margin: 8px 0 10px; }
+  .clearance span { color: var(--muted); }
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; margin: 0; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; }
+  .opening { margin-top: 8px; }
+  .opening b { font-size: 12px; }
+  #warnings li { color: var(--danger); font-size: 12px; margin-bottom: 3px; }
+  #warnings ul { padding-left: 18px; margin: 0; }
+  .opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+  kbd {
+    font: 11px ui-monospace, Consolas, monospace; padding: 1px 5px; border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 4px; background: #faf8f5;
+  }
+  .help { font-size: 12px; color: var(--muted); line-height: 1.9; }
+  #stage { position: relative; min-width: 0; min-height: 0; }
+  #plan { width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
+  #empty {
+    position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px;
+  }
+  #empty[hidden] { display: none; }
+  #empty .card {
+    background: var(--panel); border: 2px dashed #cfc6b9; border-radius: 12px; padding: 28px 32px; max-width: 480px;
+  }
+  #toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: #2a2622; color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 80vw;
+  }
+  #toast.show { opacity: 1; }
+  #toast.error { background: var(--danger); }
+
+  /* ---- SVG plan ---- */
+  .wall { fill: var(--wall); }
+  .floor { fill: var(--floor); }
+  .opening-window { fill: var(--window); }
+  .opening-door { fill: var(--floor); }
+  .door-swing { fill: rgba(37, 99, 235, 0.05); stroke: #9bb3e8; stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+  .opening-label { font-size: 4.2px; fill: var(--muted); text-anchor: middle; dominant-baseline: middle; }
+  .grid-minor { stroke: #eee7dc; stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .grid-major { stroke: #ddd3c5; stroke-width: 1; vector-effect: non-scaling-stroke; }
+  #plan.nogrid .grid-minor, #plan.nogrid .grid-major { display: none; }
+  .axis { font-size: 4.5px; fill: var(--muted); }
+  .compass { font-size: 6px; font-weight: 700; fill: var(--ink); text-anchor: middle; }
+  .piece { cursor: move; }
+  .piece .body { fill: var(--wood); stroke: var(--wood-edge); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  .piece.chair .body { fill: var(--chair); stroke: var(--chair-edge); }
+  .piece.rug .body { fill: var(--rug); fill-opacity: .55; stroke: var(--rug-edge); stroke-dasharray: 5 3; }
+  .total { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; }
+  .piece .back { stroke: #2b1a0c; stroke-width: 4; vector-effect: non-scaling-stroke; }
+  .piece .origin { fill: #2b1a0c; }
+  .piece .detail { fill: #f5efe6; stroke: #b99772; stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .piece .hatch { fill: url(#hatch); display: none; pointer-events: none; }
+  .piece.bad .hatch { display: inline; }
+  .piece.bad .body { stroke: var(--danger); stroke-width: 2; }
+  .piece.selected .body { stroke: var(--accent); stroke-width: 2.5; }
+  .piece .label { fill: #2b1a0c; font-weight: 600; pointer-events: none; text-anchor: middle; }
+  .piece .label .sub { font-weight: 400; }
+  .rot-stem { stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; display: none; }
+  .rot-handle { fill: #fff; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: grab; display: none; }
+  .piece.selected .rot-stem, .piece.selected .rot-handle { display: inline; }
+  .dim { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+  .dim-text { font-size: 4.2px; fill: var(--accent); font-weight: 600; text-anchor: middle; dominant-baseline: middle;
+              paint-order: stroke; stroke: var(--floor); stroke-width: 1.4px; }
+  .bbox { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bedroom Layout</h1>
+  <span class="room" id="roomInfo"></span>
+  <span class="spacer"></span>
+  <span id="saveStatus"></span>
+</header>
+
+<main>
+  <aside>
+    <section class="panel">
+      <h2>Project</h2>
+      <div class="btnrow">
+        <button id="btnReload">Reload files</button>
+      </div>
+      <div class="muted" id="sourceInfo"></div>
+    </section>
+
+    <section class="panel" id="inspector" hidden>
+      <h2>Selected</h2>
+      <h3 id="insName"></h3>
+      <div class="muted" id="insMeta"></div>
+      <div class="fields">
+        <label>X — back-left corner, from west wall<input id="insX" autocomplete="off"></label>
+        <label>Y — back-left corner, from south wall<input id="insY" autocomplete="off"></label>
+        <label>Rotation — degrees clockwise (0 = front faces north)<input id="insRot" type="number" step="1"></label>
+      </div>
+      <div class="btnrow" id="rotButtons">
+        <button data-rot="-90">⟲ 90°</button>
+        <button data-rot="-15">⟲ 15°</button>
+        <button data-rot="15">⟳ 15°</button>
+        <button data-rot="90">⟳ 90°</button>
+      </div>
+      <div class="clearance" id="insClear"></div>
+      <button id="insRemove">Remove from layout</button>
+    </section>
+
+    <section class="panel" id="warnings" hidden>
+      <h2>Problems</h2>
+      <ul></ul>
+    </section>
+
+    <section class="panel">
+      <h2>Furniture</h2>
+      <div id="itemList"><div class="muted">No project folder loaded.</div></div>
+    </section>
+
+    <section class="panel" id="roomPanel" hidden>
+      <h2>Room</h2>
+      <div id="roomFacts"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Options</h2>
+      <div class="opt">
+        <span>Snap to grid</span>
+        <select id="snapSelect">
+          <option value="0">Off</option>
+          <option value="0.25">¼"</option>
+          <option value="0.5">½"</option>
+          <option value="1">1"</option>
+          <option value="3">3"</option>
+          <option value="6">6"</option>
+          <option value="12">1'</option>
+        </select>
+      </div>
+      <div class="opt"><label><input type="checkbox" id="gridToggle" checked> Show 1' grid</label></div>
+    </section>
+
+    <section class="panel">
+      <h2>Controls</h2>
+      <div class="help">
+        Drag a piece to move it; edges snap to walls and other pieces.<br>
+        Drag the round handle (front of the piece) to rotate in 15° steps.<br>
+        <kbd>Alt</kbd> while dragging turns snapping off.<br>
+        <kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd> nudge · <kbd>Shift</kbd> = 1'<br>
+        <kbd>R</kbd> rotate 90° · <kbd>Shift</kbd>+<kbd>R</kbd> back 90°<br>
+        <kbd>[</kbd> <kbd>]</kbd> rotate 15° · <kbd>Del</kbd> remove · <kbd>Esc</kbd> deselect<br>
+        Thick edge = back of the piece; dot = its back-left corner (the saved x/y).
+      </div>
+    </section>
+  </aside>
+
+  <section id="stage">
+    <svg id="plan" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="empty">
+      <div class="card" id="emptyCard">
+        <h2 style="margin-top:0">Loading…</h2>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+const ROOM_FILE = 'room_layout.json';
+const FURNITURE_DIR = 'furniture';
+const PLACEMENTS_FILE = 'furniture_placements.json';
+const LS_PREFS = 'furnitureLayout.prefs';
+const EPS = 0.05;
+const WALL = 4;          // drawn wall thickness, inches
+const WINDOW_REACH = 6;  // a piece this close to a window wall counts as "in front of" the window
+
+// ==== Feet / inches ====
+function evalNum(t) {
+  return t.trim().split(/[\s-]+/).reduce((sum, part) => {
+    if (part.includes('/')) { const [a, b] = part.split('/').map(Number); return sum + a / b; }
+    return sum + Number(part);
+  }, 0);
+}
+
+// Accepts: 5' 2 3/8"   5'2"   62"   62   62.375   5 ft 2 in   5'
+function parseFI(s) {
+  if (typeof s === 'number') return s;
+  if (s == null) return NaN;
+  s = String(s).trim().toLowerCase().replace(/[’′‘]/g, "'").replace(/[”″“]/g, '"').replace(/''/g, '"');
+  if (!s) return NaN;
+  let neg = false;
+  if (s[0] === '-') { neg = true; s = s.slice(1).trim(); }
+  const num = '(\\d+(?:\\.\\d+)?(?:[\\s-]+\\d+\\/\\d+)?|\\d+\\/\\d+|\\.\\d+)';
+  const re = new RegExp(`^(?:${num}\\s*(?:'|ft|feet|foot)\\s*)?(?:${num}\\s*(?:"|in|inch|inches)?)?$`);
+  const m = s.match(re);
+  if (!m || (!m[1] && !m[2])) return NaN;
+  const v = (m[1] ? evalNum(m[1]) * 12 : 0) + (m[2] ? evalNum(m[2]) : 0);
+  return neg ? -v : v;
+}
+
+function fracParts(v) {
+  const sixteenths = Math.round(Math.abs(v) * 16);
+  const whole = Math.floor(sixteenths / 16);
+  let n = sixteenths % 16, d = 16;
+  while (n && n % 2 === 0) { n /= 2; d /= 2; }
+  return { sixteenths, whole, frac: n ? `${n}/${d}` : '' };
+}
+
+// Inches to the nearest 1/16": 79 1/4"
+function fmtIn(v) {
+  const { whole, frac, sixteenths } = fracParts(v);
+  const sign = v < 0 && sixteenths ? '-' : '';
+  if (!whole && frac) return `${sign}${frac}"`;
+  return `${sign}${whole}${frac ? ' ' + frac : ''}"`;
+}
+
+// Feet and inches to the nearest 1/16": 5' 2 3/8"
+function fmtFI(v) {
+  const { sixteenths } = fracParts(v);
+  const sign = v < 0 && sixteenths ? '-' : '';
+  const ft = Math.floor(sixteenths / 192);
+  return `${sign}${ft}' ${fmtIn((sixteenths - ft * 192) / 16)}`;
+}
+
+const fmtShort = v => Math.abs(v) < 12 ? fmtIn(v) : fmtFI(v);
+
+// ==== App state ====
+// Internally positions are screen-oriented: x east from the west wall, y DOWN from the north wall,
+// (x, y) is the piece's center and rot is degrees clockwise. Conversion to the room's
+// southwest-origin, y-north system happens only when reading/writing placements.
+const $ = s => document.querySelector(s);
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+const state = {
+  room: null,          // parsed room_layout.json, see parseRoom()
+  items: [],           // { id, file, name, label, group, type, width, depth, height, price, x, y, rot, included }
+  selectedId: null,
+  snap: 1,
+  showGrid: true,
+  online: true,        // event stream to the server is connected
+  loadError: null,
+  saveError: null,
+  lastSaved: null,
+  saving: false,
+  dirty: false,
+  problems: new Set(),
+};
+
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } };
+
+let toastTimer;
+function toast(msg, isError = false) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, isError ? 7000 : 3000);
+}
+
+const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+const num = v => typeof v === 'number' ? v : parseFloat(v);
+const byId = id => state.items.find(it => it.id === id);
+const selected = () => byId(state.selectedId);
+const normRot = a => { const r = Math.round((((a % 360) + 360) % 360) * 10) / 10; return r === 360 ? 0 : r; };
+const humanize = k => String(k).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const safeParse = t => { try { return t ? JSON.parse(t) : null; } catch { return null; } };
+const FACING = { 0: 'north', 90: 'east', 180: 'south', 270: 'west' };
+const isDoor = o => /door|entrance|entry/i.test(o.type);
+const isWindow = o => /window/i.test(o.type);
+
+function unitFactor(units) {
+  const u = String(units || 'inches').toLowerCase();
+  if (/^(ft|feet|foot)$/.test(u)) return 12;
+  if (/^(cm|centimet)/.test(u)) return 1 / 2.54;
+  if (/^(mm|millimet)/.test(u)) return 1 / 25.4;
+  if (/^(m|met)/.test(u)) return 100 / 2.54;
+  return 1;
+}
+
+// ==== Model ====
+// room_layout.json: units, coordinate_system, room { width, length, width_feet, length_feet,
+// ceiling_height, ceiling_height_feet }, openings [{ type, wall, orientation, width, placement,
+// corner, start, end, sill_height, height, top_height }]
+function parseRoom(doc) {
+  const f = unitFactor(doc.units);
+  const r = isObj(doc.room) ? doc.room : {};
+  // Prefer the value in the file's units; fall back to the *_feet variant.
+  const len = key => Number.isFinite(num(r[key])) ? num(r[key]) * f
+    : Number.isFinite(num(r[key + '_feet'])) ? num(r[key + '_feet']) * 12 : NaN;
+  const cs = isObj(doc.coordinate_system) ? doc.coordinate_system : {};
+  const room = {
+    units: doc.units || 'inches',
+    coordinate_system: { origin: 'southwest_corner', x_axis: 'east', y_axis: 'north', ...cs },
+    width: len('width'),
+    length: len('length'),
+    ceiling: len('ceiling_height'),
+    openings: [],
+  };
+  if (!(room.width > 0 && room.length > 0)) throw new Error('room.width and room.length are required');
+  const c = room.coordinate_system;
+  if (!/south.*west|west.*south/i.test(c.origin) || !/east/i.test(c.x_axis) || !/north/i.test(c.y_axis)) {
+    toast(`${ROOM_FILE}: only a southwest origin with x east / y north is supported; positions may be mirrored.`, true);
+  }
+  for (const o of Array.isArray(doc.openings) ? doc.openings : []) {
+    if (!isObj(o.start) || !isObj(o.end)) continue;
+    const x1 = num(o.start.x) * f, y1 = num(o.start.y) * f, x2 = num(o.end.x) * f, y2 = num(o.end.y) * f;
+    const wall = String(o.wall || (y1 === y2 ? (y1 <= 0 ? 'south' : 'north') : (x1 <= 0 ? 'west' : 'east'))).toLowerCase();
+    const opening = {
+      type: String(o.type || 'opening'), wall, x1, y1, x2, y2,
+      width: Number.isFinite(num(o.width)) ? num(o.width) * f : Math.hypot(x2 - x1, y2 - y1),
+      orientation: o.orientation || null,
+      placement: o.placement || null,
+      corner: o.corner ? String(o.corner).toLowerCase() : null,
+      sill: Number.isFinite(num(o.sill_height)) ? num(o.sill_height) * f : null,
+      height: Number.isFinite(num(o.height)) ? num(o.height) * f : null,
+      top: Number.isFinite(num(o.top_height)) ? num(o.top_height) * f : null,
+    };
+    if (opening.top === null && opening.sill !== null && opening.height !== null) opening.top = opening.sill + opening.height;
+    room.openings.push(opening);
+  }
+  return room;
+}
+
+function parseFurniture(doc, path) {
+  const f = unitFactor(doc.units);
+  const fu = isObj(doc.furniture) ? doc.furniture : doc;
+  const d = isObj(fu.dimensions) ? fu.dimensions : {};
+  // Rugs give width x length; everything else width x depth.
+  const width = num(d.width) * f, depth = num(d.depth != null ? d.depth : d.length) * f;
+  if (!(width > 0 && depth > 0)) throw new Error('furniture.dimensions needs width and depth (or length)');
+  const bb = isObj(doc.geometry) && isObj(doc.geometry.bounding_box) && isObj(doc.geometry.bounding_box.max) ? doc.geometry.bounding_box.max : {};
+  const height = [d.height, bb.z, d.height_with_cushion, d.frame_height, d.pile_height].map(num).find(Number.isFinite);
+  const isRug = /rug|carpet|mat$/i.test(String(fu.type || ''));
+  // id = path under furniture/ without extension, e.g. "room_and_board/hudson_dresser"
+  const base = path.replace(new RegExp(`^${FURNITURE_DIR}/`, 'i'), '').replace(/\.json$/i, '');
+  const qty = Math.max(1, parseInt(fu.quantity, 10) || 1);
+  const label = fu.label || [fu.collection, fu.type].filter(Boolean).map(humanize).join(' ') || fu.name || humanize(base.split('/').pop());
+  const group = fu.manufacturer || humanize(base.includes('/') ? base.split('/')[0] : 'Furniture');
+  const price = parsePrice(isObj(doc.metadata) ? doc.metadata.price : null);
+  const out = [];
+  for (let n = 1; n <= qty; n++) {
+    out.push({
+      id: qty > 1 ? `${base}#${n}` : base,
+      file: path,
+      name: fu.name || label,
+      label: qty > 1 ? `${label} ${n}` : label,
+      group, type: String(fu.type || ''), isRug,
+      width, depth, height: Number.isFinite(height) ? height * f : null, price,
+      x: 0, y: 0, rot: 0,
+      // Several files are alternatives for the same spot, so pieces start unticked unless marked selected.
+      included: fu.selected === true,
+      placed: false,
+    });
+  }
+  return out;
+}
+
+// metadata.price: { currency, configured_price } (also accepts amount / display) -> { amount, currency, text }
+function parsePrice(p) {
+  if (p == null) return null;
+  if (!isObj(p)) p = { amount: p };
+  const amount = [p.configured_price, p.amount, p.price].map(num).find(Number.isFinite)
+    ?? num(String(p.display || '').replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(amount)) return null;
+  const currency = /^[A-Z]{3}$/.test(p.currency || '') ? p.currency : 'USD';
+  return { amount, currency, text: fmtMoney(amount, currency) };
+}
+function fmtMoney(amount, currency = 'USD') {
+  try { return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount); }
+  catch { return `${currency} ${amount.toFixed(2)}`; }
+}
+
+const isFurniturePath = p => p.toLowerCase().startsWith(FURNITURE_DIR + '/') && /\.json$/i.test(p);
+
+// Build the room + furniture from the project files sent by the server.
+function loadProject(files) {
+  const errors = [];
+  let room = null, placementsDoc = null;
+  const items = [];
+  const roomFile = files.find(f => f.path.toLowerCase() === ROOM_FILE);
+  for (const f of files) {
+    const isRoom = f === roomFile, isPlacements = f.path.toLowerCase() === PLACEMENTS_FILE;
+    if (!isRoom && !isPlacements && !isFurniturePath(f.path)) continue;
+    let doc;
+    try { doc = JSON.parse(f.text); } catch (err) { errors.push(`${f.path}: ${err.message}`); continue; }
+    try {
+      if (isRoom) room = parseRoom(doc);
+      else if (isPlacements) placementsDoc = doc;
+      else items.push(...parseFurniture(doc, f.path));
+    } catch (err) { errors.push(`${f.path}: ${err.message}`); }
+  }
+  if (!roomFile) errors.unshift(`${ROOM_FILE} not found next to server.js`);
+  if (errors.length) toast(errors.join(' · '), true);
+  if (!room) { state.loadError = errors[0] || `could not read ${ROOM_FILE}`; refreshAll(); return false; }
+  state.loadError = null;
+
+  // Keep positions of pieces already on screen (e.g. after "Reload files").
+  const prev = new Map(state.items.map(it => [it.id, it]));
+  const sameRoom = state.room && state.room.width === room.width && state.room.length === room.length;
+  for (const it of items) {
+    const p = sameRoom && prev.get(it.id);
+    if (p) Object.assign(it, { x: p.x, y: p.y, rot: p.rot, included: p.included, placed: true });
+  }
+  state.room = room;
+  state.items = items;
+
+  if (placementsDoc) applyPlacements(placementsDoc, true);
+  defaultPlacement(items.filter(it => !it.placed));
+  if (!byId(state.selectedId)) state.selectedId = null;
+  $('#sourceInfo').textContent = `Loaded ${ROOM_FILE} + ${new Set(items.map(i => i.file)).size} furniture file(s)` +
+    (placementsDoc ? ` + ${PLACEMENTS_FILE}` : '');
+  buildScene();
+  renderRoomPanel();
+  refreshAll();
+  return true;
+}
+
+// New pieces: beds against the west wall, storage along the east wall, anything else mid-room.
+function defaultPlacement(list) {
+  const { width: W, length: L } = state.room;
+  let yCursor = L * 0.35;
+  for (const it of list) {
+    if (/bed/i.test(it.type)) {
+      Object.assign(it, { rot: 90, x: it.depth / 2, y: L / 2 });
+    } else if (/dresser|chest|bookcase|shel|cabinet/i.test(it.type)) {
+      Object.assign(it, { rot: 270, x: W - it.depth / 2, y: Math.min(yCursor, L - it.width / 2) });
+      yCursor += it.width + 12;
+    } else {
+      Object.assign(it, { rot: 0, x: W / 2, y: L / 2 });
+    }
+    it.placed = true;
+  }
+}
+
+// ==== Geometry ====
+const rad = d => d * Math.PI / 180;
+function localToScreen(it, lx, ly) {
+  const c = Math.cos(rad(it.rot)), s = Math.sin(rad(it.rot));
+  return [it.x + lx * c - ly * s, it.y + lx * s + ly * c];
+}
+function corners(it) {
+  const hw = it.width / 2, hd = it.depth / 2;
+  return [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([x, y]) => localToScreen(it, x, y));
+}
+// Front of a piece is local -y (up on screen at rotation 0); back-left corner is local (-w/2, +d/2),
+// which matches the furniture files' origin "back_left_floor_corner" with y pointing forward.
+const originScreen = it => localToScreen(it, -it.width / 2, it.depth / 2);
+function roomOrigin(it) {
+  const [sx, sy] = originScreen(it);
+  return { x: sx, y: state.room.length - sy };
+}
+function setFromRoomOrigin(it, rx, ry, rot) {
+  it.rot = normRot(rot);
+  const [ox, oy] = originScreen({ ...it, x: 0, y: 0 });
+  it.x = rx - ox;
+  it.y = (state.room.length - ry) - oy;
+}
+function halfExtents(it) {
+  const c = Math.abs(Math.cos(rad(it.rot))), s = Math.abs(Math.sin(rad(it.rot)));
+  return { hx: it.width / 2 * c + it.depth / 2 * s, hy: it.width / 2 * s + it.depth / 2 * c };
+}
+function bbox(it) {
+  const { hx, hy } = halfExtents(it);
+  return { minX: it.x - hx, maxX: it.x + hx, minY: it.y - hy, maxY: it.y + hy };
+}
+function overlaps(a, b) {
+  const A = corners(a), B = corners(b);
+  for (const P of [A, B]) {
+    for (let k = 0; k < 2; k++) {
+      const nx = -(P[k + 1][1] - P[k][1]), ny = P[k + 1][0] - P[k][0], len = Math.hypot(nx, ny);
+      const proj = pts => pts.map(([x, y]) => (x * nx + y * ny) / len);
+      const pa = proj(A), pb = proj(B);
+      if (Math.max(...pa) <= Math.min(...pb) + EPS || Math.max(...pb) <= Math.min(...pa) + EPS) return false;
+    }
+  }
+  return true;
+}
+function outsideRoom(it) {
+  return corners(it).some(([x, y]) => x < -EPS || y < -EPS || x > state.room.width + EPS || y > state.room.length + EPS);
+}
+
+// Opening geometry in screen coordinates: span along its wall, the inward normal, and the door hinge.
+function openingGeom(o) {
+  const L = state.room.length;
+  const a = [o.x1, L - o.y1], b = [o.x2, L - o.y2];
+  const inward = { north: [0, 1], south: [0, -1], west: [1, 0], east: [-1, 0] }[o.wall] || [0, 1];
+  // Hinge at the end nearest the named corner (e.g. "northwest"), otherwise at the start point.
+  let hinge = a, free = b;
+  if (o.corner) {
+    const cx = /west/.test(o.corner) ? 0 : /east/.test(o.corner) ? state.room.width : null;
+    const cy = /north/.test(o.corner) ? 0 : /south/.test(o.corner) ? L : null;
+    const dist = p => Math.hypot(cx === null ? 0 : p[0] - cx, cy === null ? 0 : p[1] - cy);
+    if (dist(b) < dist(a)) { hinge = b; free = a; }
+  }
+  return { a, b, inward, hinge, free };
+}
+
+// Square in front of a door that its swing sweeps (radius = door width).
+function doorSwingZone(o) {
+  const { hinge, free, inward } = openingGeom(o);
+  const r = o.width;
+  const pts = [hinge, free, [free[0] + inward[0] * r, free[1] + inward[1] * r], [hinge[0] + inward[0] * r, hinge[1] + inward[1] * r]];
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2, width: maxX - minX, depth: maxY - minY, rot: 0 };
+}
+
+// Is the piece pushed up against the window's wall, within the window's span?
+function inFrontOfWindow(it, o) {
+  const b = bbox(it), { a, b: e } = openingGeom(o), W = state.room.width, L = state.room.length;
+  const spanOverlap = (lo, hi, s1, s2) => Math.min(hi, Math.max(s1, s2)) - Math.max(lo, Math.min(s1, s2)) > EPS;
+  switch (o.wall) {
+    case 'north': return b.minY <= WINDOW_REACH && spanOverlap(b.minX, b.maxX, a[0], e[0]);
+    case 'south': return L - b.maxY <= WINDOW_REACH && spanOverlap(b.minX, b.maxX, a[0], e[0]);
+    case 'west': return b.minX <= WINDOW_REACH && spanOverlap(b.minY, b.maxY, a[1], e[1]);
+    case 'east': return W - b.maxX <= WINDOW_REACH && spanOverlap(b.minY, b.maxY, a[1], e[1]);
+  }
+  return false;
+}
+
+// Grid-snap the center, but let piece edges snap to walls/other pieces when close.
+function snapPosition(it, x, y, threshold) {
+  const { hx, hy } = halfExtents(it);
+  const xs = [0, state.room.width], ys = [0, state.room.length];
+  for (const o of state.items) {
+    if (o === it || !o.included) continue;
+    const b = bbox(o);
+    xs.push(b.minX, b.maxX); ys.push(b.minY, b.maxY);
+  }
+  for (const o of state.room.openings) {
+    const { a, b } = openingGeom(o);
+    xs.push(a[0], b[0]); ys.push(a[1], b[1]);
+  }
+  const edgeSnap = (v, h, targets) => {
+    let best = null;
+    for (const t of targets) for (const e of [v - h, v + h]) {
+      const d = t - e;
+      if (Math.abs(d) < threshold && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+    }
+    return best;
+  };
+  const grid = v => state.snap > 0 ? Math.round(v / state.snap) * state.snap : v;
+  const dx = edgeSnap(x, hx, xs), dy = edgeSnap(y, hy, ys);
+  return [dx !== null ? x + dx : grid(x), dy !== null ? y + dy : grid(y)];
+}
+
+// ==== SVG scene ====
+const svg = $('#plan');
+let piecesLayer, overlayLayer;
+const pieceEls = new Map();
+
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+function drawOpening(o, layer) {
+  const { a, b, inward, hinge, free } = openingGeom(o);
+  const minX = Math.min(a[0], b[0]), maxX = Math.max(a[0], b[0]);
+  const minY = Math.min(a[1], b[1]), maxY = Math.max(a[1], b[1]);
+  // The opening cuts through the wall band just outside the floor.
+  const out = [-inward[0], -inward[1]];
+  const r = out[1] ? { x: minX, y: out[1] < 0 ? -WALL : maxY, width: maxX - minX, height: WALL }
+                   : { x: out[0] < 0 ? -WALL : maxX, y: minY, width: WALL, height: maxY - minY };
+  el('rect', { class: isWindow(o) ? 'opening-window' : 'opening-door', ...r }, layer);
+
+  if (isDoor(o)) {
+    const rr = o.width;
+    const open = [hinge[0] + inward[0] * rr, hinge[1] + inward[1] * rr];
+    const u = [free[0] - hinge[0], free[1] - hinge[1]];
+    const sweep = u[0] * inward[1] - u[1] * inward[0] > 0 ? 1 : 0;
+    el('path', { class: 'door-swing', d: `M ${hinge[0]} ${hinge[1]} L ${free[0]} ${free[1]} A ${rr} ${rr} 0 0 ${sweep} ${open[0]} ${open[1]} Z` }, layer);
+  }
+
+  const text = isWindow(o)
+    ? `${humanize(o.type)} ${fmtShort(o.width)}${o.sill !== null ? ` · sill ${fmtShort(o.sill)}` : ''}`
+    : `${humanize(o.type)} ${fmtShort(o.width)}`;
+  const mid = [(a[0] + b[0]) / 2 + out[0] * (WALL + 5), (a[1] + b[1]) / 2 + out[1] * (WALL + 5)];
+  const t = el('text', { class: 'opening-label', x: mid[0], y: mid[1] }, layer);
+  if (out[0]) t.setAttribute('transform', `rotate(${out[0] < 0 ? -90 : 90} ${mid[0]} ${mid[1]})`);
+  t.textContent = text;
+}
+
+function buildScene() {
+  svg.replaceChildren();
+  pieceEls.clear();
+  const { width: W, length: L } = state.room;
+  const M = 26;
+  svg.setAttribute('viewBox', `${-M} ${-M} ${W + 2 * M} ${L + 2 * M}`);
+
+  const defs = el('defs', {}, svg);
+  const pat = el('pattern', { id: 'hatch', width: 4, height: 4, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+  el('rect', { width: 4, height: 4, fill: 'rgba(198,40,40,0.18)' }, pat);
+  el('line', { x1: 0, y1: 0, x2: 0, y2: 4, stroke: 'rgba(198,40,40,0.6)', 'stroke-width': 1.2 }, pat);
+
+  el('rect', { class: 'wall', x: -WALL, y: -WALL, width: W + 2 * WALL, height: L + 2 * WALL }, svg);
+  el('rect', { class: 'floor', x: 0, y: 0, width: W, height: L }, svg);
+
+  const grid = el('g', {}, svg);
+  for (let x = 6; x < W; x += 6) el('line', { class: x % 12 ? 'grid-minor' : 'grid-major', x1: x, y1: 0, x2: x, y2: L }, grid);
+  // Horizontal lines are measured from the south wall (the room origin).
+  for (let y = 6; y < L; y += 6) el('line', { class: y % 12 ? 'grid-minor' : 'grid-major', x1: 0, y1: L - y, x2: W, y2: L - y }, grid);
+
+  const openings = el('g', {}, svg);
+  state.room.openings.forEach(o => drawOpening(o, openings));
+
+  const axis = el('g', { class: 'axis' }, svg);
+  for (let x = 0; x <= W; x += 12) el('text', { x, y: L + WALL + 16, 'text-anchor': 'middle' }, axis).textContent = `${x / 12}'`;
+  for (let y = 0; y <= L; y += 12) el('text', { x: -WALL - 11, y: L - y + 1.5, 'text-anchor': 'end' }, axis).textContent = `${y / 12}'`;
+  el('text', { class: 'compass', x: W + 16, y: -12 }, svg).textContent = 'N';
+  el('path', { d: `M ${W + 16} -10 l -3 7 l 3 -2 l 3 2 z`, fill: 'var(--ink)' }, svg);
+
+  const rugsLayer = el('g', {}, svg); // rugs lie under everything else
+  piecesLayer = el('g', {}, svg);
+  overlayLayer = el('g', { 'pointer-events': 'none' }, svg);
+
+  for (const it of state.items) {
+    const isChair = /chair/i.test(it.type + it.name);
+    const layer = it.isRug ? rugsLayer : piecesLayer;
+    const g = el('g', { class: `piece${isChair ? ' chair' : ''}${it.isRug ? ' rug' : ''}`, 'data-id': it.id }, layer);
+    el('title', {}, g).textContent = it.name;
+    const w = it.width, d = it.depth;
+    const r = isChair ? Math.min(w, d) * 0.28 : 0.8;
+    el('rect', { class: 'body', x: -w / 2, y: -d / 2, width: w, height: d, rx: r }, g);
+    if (/bed/i.test(it.type)) {
+      const pw = w / 2 - 6; // pillows at the back (headboard) end
+      el('rect', { class: 'detail', x: -w / 2 + 4, y: d / 2 - 15, width: pw, height: 11, rx: 3 }, g);
+      el('rect', { class: 'detail', x: 2, y: d / 2 - 15, width: pw, height: 11, rx: 3 }, g);
+    }
+    el('rect', { class: 'hatch', x: -w / 2, y: -d / 2, width: w, height: d, rx: r }, g);
+    if (!it.isRug) el('line', { class: 'back', x1: -w / 2, y1: d / 2, x2: w / 2, y2: d / 2 }, g);
+    el('circle', { class: 'origin', cx: -w / 2, cy: d / 2, r: 1.6 }, g);
+    el('line', { class: 'rot-stem', x1: 0, y1: -d / 2, x2: 0, y2: -d / 2 - 9 }, g);
+    el('circle', { class: 'rot-handle', cx: 0, cy: -d / 2 - 9, r: 3.2 }, g);
+    const label = el('text', { class: 'label' }, g);
+    el('tspan', { x: 0 }, label).textContent = it.label;
+    el('tspan', { x: 0, class: 'sub' }, label).textContent = `${fmtIn(w)} × ${fmtIn(d)}`;
+    pieceEls.set(it.id, { g, label, layer });
+  }
+  svg.classList.toggle('nogrid', !state.showGrid);
+}
+
+function updatePiece(it) {
+  const p = pieceEls.get(it.id);
+  if (!p) return;
+  p.g.setAttribute('transform', `translate(${it.x} ${it.y}) rotate(${it.rot})`);
+  p.g.style.display = it.included ? '' : 'none';
+  p.g.classList.toggle('selected', it.id === state.selectedId);
+  // Keep the label upright and sized to the piece's on-screen footprint.
+  const { hx, hy } = halfExtents(it);
+  const chars = Math.max(it.label.length, 12);
+  const fs = Math.max(2.4, Math.min(6, (2 * hx) / (chars * 0.6), (2 * hy) / 3));
+  p.label.setAttribute('transform', `rotate(${-it.rot})`);
+  p.label.setAttribute('font-size', fs.toFixed(2));
+  const [t1, t2] = p.label.children;
+  t1.setAttribute('y', (-0.15 * fs).toFixed(2));
+  t2.setAttribute('y', (1.05 * fs).toFixed(2));
+}
+
+function updateProblems() {
+  const msgs = [];
+  const bad = new Set();
+  const flag = (it, msg) => { bad.add(it.id); msgs.push(msg); };
+  const inc = state.items.filter(it => it.included);
+  if (state.room) {
+    for (const it of inc) {
+      if (outsideRoom(it)) flag(it, `${it.label} extends past a wall`);
+      if (state.room.ceiling > 0 && it.height > state.room.ceiling) flag(it, `${it.label} is taller than the ${fmtFI(state.room.ceiling)} ceiling`);
+      for (const o of state.room.openings) {
+        if (isDoor(o) && !it.isRug && overlaps(it, doorSwingZone(o))) flag(it, `${it.label} blocks the ${o.wall} ${o.type.toLowerCase()} swing`);
+        if (isWindow(o) && o.sill !== null && it.height > o.sill + EPS && inFrontOfWindow(it, o)) {
+          flag(it, `${it.label} (${fmtFI(it.height)} tall) rises above the ${o.wall} window sill (${fmtFI(o.sill)})`);
+        }
+      }
+    }
+    for (let a = 0; a < inc.length; a++) for (let b = a + 1; b < inc.length; b++) {
+      // Furniture sits on rugs, so only rug-on-rug or furniture-on-furniture counts.
+      if (inc[a].isRug === inc[b].isRug && overlaps(inc[a], inc[b])) {
+        bad.add(inc[a].id); bad.add(inc[b].id);
+        msgs.push(`${inc[a].label} overlaps ${inc[b].label}`);
+      }
+    }
+  }
+  for (const [id, p] of pieceEls) p.g.classList.toggle('bad', bad.has(id));
+  state.problems = bad;
+  const box = $('#warnings');
+  box.hidden = !msgs.length;
+  box.querySelector('ul').innerHTML = msgs.map(m => `<li>${escapeHtml(m)}</li>`).join('');
+  document.querySelectorAll('#itemList .item').forEach(row => row.classList.toggle('bad', bad.has(row.dataset.id)));
+}
+
+function updateOverlay() {
+  if (!overlayLayer) return;
+  overlayLayer.replaceChildren();
+  const it = selected();
+  if (!it || !it.included) return;
+  const b = bbox(it), W = state.room.width, L = state.room.length;
+  if (it.rot % 90) el('rect', { class: 'bbox', x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY }, overlayLayer);
+  const line = (x1, y1, x2, y2, dist) => {
+    if (dist < 0.5) return;
+    el('line', { class: 'dim', x1, y1, x2, y2 }, overlayLayer);
+    el('text', { class: 'dim-text', x: (x1 + x2) / 2, y: (y1 + y2) / 2 }, overlayLayer).textContent = fmtShort(dist);
+  };
+  const cy = Math.min(Math.max(it.y, 0), L), cx = Math.min(Math.max(it.x, 0), W);
+  line(0, cy, b.minX, cy, b.minX);
+  line(b.maxX, cy, W, cy, W - b.maxX);
+  line(cx, 0, cx, b.minY, b.minY);
+  line(cx, b.maxY, cx, L, L - b.maxY);
+}
+
+// ==== Sidebar ====
+function renderRoomPanel() {
+  const r = state.room;
+  $('#roomPanel').hidden = !r;
+  if (!r) return;
+  const facts = pairs => `<dl class="facts">${pairs.filter(([, v]) => v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join('')}</dl>`;
+  const cs = r.coordinate_system;
+  let html = facts([
+    ['Width (W–E)', fmtFI(r.width)],
+    ['Length (S–N)', fmtFI(r.length)],
+    ['Ceiling', r.ceiling > 0 ? fmtFI(r.ceiling) : null],
+    ['Floor area', `${(r.width * r.length / 144).toFixed(1)} sq ft`],
+    ['Origin', humanize(cs.origin)],
+    ['Axes', `x → ${cs.x_axis}, y → ${cs.y_axis}`],
+  ]);
+  for (const o of r.openings) {
+    html += `<div class="opening"><b>${escapeHtml(humanize(o.type))} — ${escapeHtml(o.wall)} wall</b>` + facts([
+      ['Width', fmtFI(o.width)],
+      ['From', `(${fmtShort(o.x1)}, ${fmtShort(o.y1)}) to (${fmtShort(o.x2)}, ${fmtShort(o.y2)})`],
+      ['Placement', o.placement ? humanize(o.placement) : null],
+      ['Corner', o.corner ? humanize(o.corner) : null],
+      ['Faces', o.orientation ? humanize(o.orientation) : null],
+      ['Sill height', o.sill !== null ? fmtFI(o.sill) : null],
+      ['Height', o.height !== null ? fmtFI(o.height) : null],
+      ['Top', o.top !== null ? fmtFI(o.top) : null],
+    ]) + '</div>';
+  }
+  $('#roomFacts').innerHTML = html;
+}
+
+function renderList() {
+  const list = $('#itemList');
+  if (!state.items.length) {
+    list.innerHTML = `<div class="muted">${state.room ? `No furniture found in ${FURNITURE_DIR}/.` : 'No project folder loaded.'}</div>`;
+    return;
+  }
+  const groups = new Map();
+  for (const it of state.items) { if (!groups.has(it.group)) groups.set(it.group, []); groups.get(it.group).push(it); }
+  let html = '';
+  for (const [group, items] of groups) {
+    html += `<div class="group-title">${escapeHtml(group)}</div>`;
+    for (const it of items) {
+      const cls = ['item', it.id === state.selectedId ? 'selected' : '', state.problems.has(it.id) ? 'bad' : ''].join(' ');
+      const tip = [it.name, it.price && it.price.text, it.file].filter(Boolean).join(' · ');
+      html += `<div class="${cls}" data-id="${escapeHtml(it.id)}" title="${escapeHtml(tip)}">
+        <input type="checkbox" ${it.included ? 'checked' : ''} title="Include in layout">
+        <span class="name">${escapeHtml(it.label)}</span>
+        <span class="dims">${fmtIn(it.width)} × ${fmtIn(it.depth)}</span></div>`;
+    }
+  }
+  const chosen = state.items.filter(it => it.included);
+  if (!chosen.length) html += '<div class="muted" style="margin-top:8px">Tick pieces to add them to the room.</div>';
+  else {
+    const priced = chosen.filter(it => it.price);
+    const total = priced.reduce((s, it) => s + it.price.amount, 0);
+    html += `<div class="total">${chosen.length} in room · total <b>${fmtMoney(total)}</b>` +
+      (priced.length < chosen.length ? ` <span class="muted">(${chosen.length - priced.length} unpriced)</span>` : '') + '</div>';
+  }
+  list.innerHTML = html;
+}
+
+function renderInspector() {
+  const it = selected();
+  const box = $('#inspector');
+  box.hidden = !it || !it.included;
+  if (box.hidden) return;
+  $('#insName').textContent = it.label;
+  $('#insMeta').textContent = [it.name, `${fmtFI(it.width)} W × ${fmtFI(it.depth)} D` + (it.height ? ` × ${fmtFI(it.height)} H` : ''), it.price && it.price.text]
+    .filter(Boolean).join(' · ');
+  const setVal = (sel, v) => { const inp = $(sel); if (document.activeElement !== inp) { inp.value = v; inp.classList.remove('invalid'); } };
+  const o = roomOrigin(it);
+  setVal('#insX', fmtFI(o.x));
+  setVal('#insY', fmtFI(o.y));
+  setVal('#insRot', it.rot);
+  const b = bbox(it);
+  const c = [['West wall', b.minX], ['East wall', state.room.width - b.maxX], ['North wall', b.minY], ['South wall', state.room.length - b.maxY]];
+  $('#insClear').innerHTML = c.map(([k, v]) =>
+    `<div><span>${k}</span><br>${v < -EPS ? '<b style="color:var(--danger)">past wall</b>' : fmtShort(Math.max(0, v))}</div>`).join('');
+}
+
+function updateSaveStatus() {
+  const s = $('#saveStatus');
+  if (!state.room) { s.innerHTML = ''; return; }
+  if (state.saveError) {
+    s.innerHTML = `<span class="warn">●</span> Could not save ${PLACEMENTS_FILE}: ${escapeHtml(state.saveError)}
+      <button id="btnRetry">Retry</button>`;
+  } else if (!state.online) {
+    s.innerHTML = `<span class="warn">●</span> Server not reachable — is <b>npm start</b> still running?`;
+  } else {
+    const when = state.saving ? 'saving…' : state.lastSaved ? `saved ${state.lastSaved.toLocaleTimeString()}` : 'saves on every change';
+    s.innerHTML = `<span class="ok">●</span> <b>${PLACEMENTS_FILE}</b> · ${when}`;
+  }
+}
+
+function renderEmpty() {
+  const card = $('#emptyCard');
+  if (location.protocol === 'file:') {
+    card.innerHTML = `<h2 style="margin-top:0">Start the server</h2>
+      <p>This page is served by the Node app. In the project folder run:</p>
+      <p><kbd>npm start</kbd></p>
+      <p class="muted">It opens <b>http://127.0.0.1:3000/</b> and loads ${ROOM_FILE} and everything under ${FURNITURE_DIR}/.</p>`;
+  } else if (state.loadError) {
+    card.innerHTML = `<h2 style="margin-top:0">Couldn't load the project</h2>
+      <p>${escapeHtml(state.loadError)}</p><p class="muted">Fix the file and it will reload automatically.</p>`;
+  } else {
+    card.innerHTML = '<h2 style="margin-top:0">Loading…</h2>';
+  }
+}
+
+function refreshAll() {
+  const has = !!state.room;
+  $('#empty').hidden = has;
+  if (!has) renderEmpty();
+  if (has) {
+    $('#roomInfo').textContent = `${fmtFI(state.room.width)} × ${fmtFI(state.room.length)}` +
+      (state.room.ceiling > 0 ? ` · ${fmtFI(state.room.ceiling)} ceiling` : '');
+    state.items.forEach(updatePiece);
+  }
+  renderList();
+  updateProblems();
+  updateOverlay();
+  renderInspector();
+  updateSaveStatus();
+}
+
+function refreshMoving(it) {
+  updatePiece(it);
+  updateProblems();
+  updateOverlay();
+  renderInspector();
+}
+
+function select(id) {
+  state.selectedId = id;
+  const p = id && pieceEls.get(id);
+  if (p) p.layer.appendChild(p.g); // bring to front of its layer
+  for (const [pid, pe] of pieceEls) pe.g.classList.toggle('selected', pid === id);
+  document.querySelectorAll('#itemList .item').forEach(r => r.classList.toggle('selected', r.dataset.id === id));
+  updateOverlay();
+  renderInspector();
+}
+
+// ==== Placements file ====
+function buildPlacements() {
+  const cs = state.room.coordinate_system;
+  const placements = {};
+  for (const it of state.items.filter(i => i.included)) {
+    const o = roomOrigin(it);
+    placements[it.id] = {
+      file: it.file,
+      name: it.name,
+      x: fmtFI(o.x),
+      y: fmtFI(o.y),
+      rotation: it.rot,
+      ...(FACING[it.rot] ? { front_faces: FACING[it.rot] } : {}),
+      center: { x: fmtFI(it.x), y: fmtFI(state.room.length - it.y) },
+    };
+  }
+  return {
+    room_file: ROOM_FILE,
+    saved: new Date().toISOString(),
+    units: 'feet_inches',
+    coordinate_system: {
+      origin: cs.origin, x_axis: cs.x_axis, y_axis: cs.y_axis,
+      position: "x/y locate each piece's own origin (its back-left floor corner) in room coordinates",
+      rotation: 'degrees clockwise viewed from above; 0 = front of the piece faces north (+y)',
+    },
+    placements,
+    not_placed: state.items.filter(i => !i.included).map(i => i.id),
+  };
+}
+const placementsText = () => JSON.stringify(buildPlacements(), null, 2) + '\n';
+
+// onlyUnplaced: don't override pieces that already have on-screen positions.
+function applyPlacements(doc, onlyUnplaced = false) {
+  const pl = isObj(doc && doc.placements) ? doc.placements : {};
+  for (const [id, p] of Object.entries(pl)) {
+    const it = byId(id);
+    if (!it || !isObj(p) || (onlyUnplaced && it.placed)) continue;
+    const x = parseFI(p.x), y = parseFI(p.y), r = num(p.rotation);
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      setFromRoomOrigin(it, x, y, Number.isFinite(r) ? r : 0);
+      it.included = true;
+      it.placed = true;
+    }
+  }
+  if (Array.isArray(doc && doc.not_placed)) for (const id of doc.not_placed) {
+    const it = byId(String(id));
+    if (it && !(onlyUnplaced && it.placed)) { it.included = false; it.placed = true; }
+  }
+}
+
+// ==== Saving ====
+// Changes are debounced and written through the server one at a time, newest state wins.
+let saveTimer, saveChain = Promise.resolve();
+function commit() {
+  state.dirty = true;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveChain = saveChain.then(writePlacements); }, 250);
+  updateSaveStatus();
+}
+
+async function writePlacements() {
+  if (!state.dirty) return;
+  state.saving = true; updateSaveStatus();
+  try {
+    state.dirty = false;
+    const r = await fetch('/api/placements', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: placementsText() });
+    if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+    state.lastSaved = new Date();
+    state.saveError = null;
+  } catch (err) {
+    state.dirty = true;
+    state.saveError = err.message;
+  } finally {
+    state.saving = false; updateSaveStatus();
+  }
+}
+
+// Flush a pending save if the tab is closed mid-debounce.
+window.addEventListener('pagehide', () => {
+  if (state.dirty && state.room) navigator.sendBeacon('/api/placements', new Blob([placementsText()], { type: 'application/json' }));
+});
+
+// ==== Loading ====
+async function fetchProject(announce = false) {
+  try {
+    const r = await fetch('/api/project', { cache: 'no-store' });
+    if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+    const { files } = await r.json();
+    if (loadProject(files) && announce) toast('Files changed — reloaded.');
+  } catch (err) {
+    if (!state.room) { state.loadError = `Could not reach the server: ${err.message}`; refreshAll(); }
+    else toast(`Could not reload: ${err.message}`, true);
+  }
+}
+
+// The server pushes "change" when room_layout.json or anything in furniture/ changes.
+function listenForChanges() {
+  const es = new EventSource('/api/events');
+  let dropped = false;
+  es.addEventListener('change', () => fetchProject(true));
+  es.addEventListener('page', () => location.reload());
+  es.onopen = () => {
+    state.online = true;
+    if (dropped) { dropped = false; fetchProject(); if (state.dirty) commit(); }
+    updateSaveStatus();
+  };
+  es.onerror = () => { dropped = true; state.online = false; updateSaveStatus(); };
+}
+
+// ==== Interaction ====
+let drag = null;
+
+function svgPoint(e) {
+  const p = svg.createSVGPoint();
+  p.x = e.clientX; p.y = e.clientY;
+  return p.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+svg.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !state.room) return;
+  const g = e.target.closest('.piece');
+  if (!g) { select(null); return; }
+  const it = byId(g.dataset.id);
+  select(it.id);
+  const p = svgPoint(e);
+  drag = e.target.classList.contains('rot-handle')
+    ? { mode: 'rotate', it, changed: false }
+    : { mode: 'move', it, dx: p.x - it.x, dy: p.y - it.y, changed: false };
+  svg.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+
+svg.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const { it } = drag;
+  const p = svgPoint(e);
+  if (drag.mode === 'move') {
+    let x = p.x - drag.dx, y = p.y - drag.dy;
+    if (!e.altKey) [x, y] = snapPosition(it, x, y, 10 / svg.getScreenCTM().a);
+    if (x === it.x && y === it.y) return;
+    it.x = x; it.y = y;
+  } else {
+    let a = Math.atan2(p.y - it.y, p.x - it.x) * 180 / Math.PI + 90;
+    if (!e.altKey) a = Math.round(a / 15) * 15;
+    a = normRot(a);
+    if (a === it.rot) return;
+    it.rot = a;
+  }
+  drag.changed = true;
+  refreshMoving(it);
+});
+
+const endDrag = () => { if (drag && drag.changed) commit(); drag = null; };
+svg.addEventListener('pointerup', endDrag);
+svg.addEventListener('pointercancel', endDrag);
+
+function rotateBy(it, deg) {
+  it.rot = normRot(it.rot + deg);
+  refreshMoving(it);
+  commit();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.target instanceof Element && e.target.matches('input, select, textarea')) return;
+  const it = selected();
+  if (!it || !it.included) return;
+  const step = e.shiftKey ? 12 : e.altKey ? 0.25 : (state.snap || 1);
+  switch (e.key) {
+    case 'ArrowLeft': it.x -= step; break;
+    case 'ArrowRight': it.x += step; break;
+    case 'ArrowUp': it.y -= step; break;
+    case 'ArrowDown': it.y += step; break;
+    case 'r': case 'R': rotateBy(it, e.shiftKey ? -90 : 90); e.preventDefault(); return;
+    case '[': rotateBy(it, -15); return;
+    case ']': rotateBy(it, 15); return;
+    case 'Delete': case 'Backspace': setIncluded(it, false); e.preventDefault(); return;
+    case 'Escape': select(null); return;
+    default: return;
+  }
+  e.preventDefault();
+  refreshMoving(it);
+  commit();
+});
+
+function setIncluded(it, on) {
+  it.included = on;
+  state.selectedId = on ? it.id : (state.selectedId === it.id ? null : state.selectedId);
+  refreshAll();
+  if (on) select(it.id);
+  commit();
+}
+
+$('#itemList').addEventListener('click', e => {
+  const row = e.target.closest('.item');
+  if (!row) return;
+  const it = byId(row.dataset.id);
+  if (e.target.matches('input[type=checkbox]')) { setIncluded(it, e.target.checked); return; }
+  if (!it.included) { setIncluded(it, true); return; }
+  select(it.id);
+});
+
+function bindOrigin(sel, axis) {
+  $(sel).addEventListener('change', e => {
+    const it = selected(); if (!it) return;
+    const v = parseFI(e.target.value);
+    if (!Number.isFinite(v)) { e.target.classList.add('invalid'); return; }
+    const o = roomOrigin(it);
+    o[axis] = v;
+    setFromRoomOrigin(it, o.x, o.y, it.rot);
+    e.target.classList.remove('invalid');
+    e.target.value = fmtFI(v);
+    refreshMoving(it); commit();
+  });
+}
+bindOrigin('#insX', 'x');
+bindOrigin('#insY', 'y');
+$('#insRot').addEventListener('change', e => {
+  const it = selected(); if (!it) return;
+  const v = num(e.target.value);
+  if (!Number.isFinite(v)) { e.target.classList.add('invalid'); return; }
+  it.rot = normRot(v); // rotates about the center, like the handle and buttons
+  e.target.value = it.rot;
+  refreshMoving(it); commit();
+});
+document.querySelectorAll('#inspector input').forEach(inp =>
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); }));
+$('#rotButtons').addEventListener('click', e => {
+  const b = e.target.closest('button[data-rot]'); const it = selected();
+  if (b && it) rotateBy(it, Number(b.dataset.rot));
+});
+$('#insRemove').addEventListener('click', () => { const it = selected(); if (it) setIncluded(it, false); });
+
+$('#btnReload').addEventListener('click', () => fetchProject(true));
+$('#saveStatus').addEventListener('click', e => { if (e.target.id === 'btnRetry') { state.saveError = null; commit(); } });
+
+function savePrefs() { lsSet(LS_PREFS, JSON.stringify({ snap: state.snap, showGrid: state.showGrid })); }
+$('#snapSelect').addEventListener('change', e => { state.snap = Number(e.target.value); savePrefs(); });
+$('#gridToggle').addEventListener('change', e => { state.showGrid = e.target.checked; svg.classList.toggle('nogrid', !state.showGrid); savePrefs(); });
+
+// ==== Startup ====
+(async function init() {
+  const p = safeParse(lsGet(LS_PREFS)) || {};
+  if (typeof p.snap === 'number') state.snap = p.snap;
+  if (typeof p.showGrid === 'boolean') state.showGrid = p.showGrid;
+  $('#snapSelect').value = String(state.snap);
+  $('#gridToggle').checked = state.showGrid;
+
+  refreshAll();
+  if (location.protocol === 'file:') return; // renderEmpty() explains how to start the server
+  await fetchProject();
+  listenForChanges();
+})();
+</script>
+</body>
+</html>

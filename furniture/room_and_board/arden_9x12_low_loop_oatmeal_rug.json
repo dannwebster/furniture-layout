@@ -1,0 +1,70 @@
+{
+  "units": "inches",
+  "coordinate_system": {
+    "origin": "southwest_floor_corner",
+    "x_axis": "east_across_width",
+    "y_axis": "north_along_length",
+    "z_axis": "up"
+  },
+  "furniture": {
+    "name": "Arden 9'x12' Low Loop Rug",
+    "collection": "Arden",
+    "type": "area_rug",
+    "manufacturer": "Room & Board",
+    "size": "9'x12'",
+    "dimensions": {
+      "width": 108,
+      "length": 144,
+      "pile_height": 0.5
+    },
+    "item_number": "256874",
+    "style": "low loop"
+  },
+  "geometry": {
+    "bounding_box": {
+      "min": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "max": {
+        "x": 108,
+        "y": 144,
+        "z": 0.5
+      }
+    },
+    "coverage_sq_ft": 108
+  },
+  "materials": {
+    "color": "oatmeal",
+    "fiber_content": {
+      "wool_percent": 100
+    },
+    "wool_type": "felted New Zealand wool",
+    "features": [
+      "machine tufted"
+    ]
+  },
+  "construction": {
+    "method": "machine tufted and hand finished",
+    "edge_detail": "clean-cut edge creates a natural profile",
+    "backing": "flexible latex"
+  },
+  "metadata": {
+    "price": {
+      "currency": "USD",
+      "configured_price": 3699,
+      "price_source": "user_provided",
+      "price_as_of": "2026-09-26"
+    },
+    "product_url": "https://www.roomandboard.com/catalog/rugs/neutral-rugs/arden-loop-rugs/256874?utm_source=chatgpt.com",
+    "source_retrieved": "2026-09-26",
+    "rug_pad_recommended": true,
+    "product_origin": "Georgia, United States",
+    "material_origin": "United States and imported",
+    "notes": [
+      "Configured as the 9'x12' Arden rug in low loop, oatmeal.",
+      "Room & Board describes Arden as pure felted New Zealand wool with a deep, resilient pile."
+    ]
+  }
+}

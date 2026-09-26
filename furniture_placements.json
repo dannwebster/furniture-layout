@@ -1,0 +1,62 @@
+{
+  "room_file": "room_layout.json",
+  "saved": "2026-09-26T23:53:31.549Z",
+  "units": "feet_inches",
+  "coordinate_system": {
+    "origin": "southwest_corner",
+    "x_axis": "east",
+    "y_axis": "north",
+    "position": "x/y locate each piece's own origin (its back-left floor corner) in room coordinates",
+    "rotation": "degrees clockwise viewed from above; 0 = front of the piece faces north (+y)"
+  },
+  "placements": {
+    "article/cooper_1_drawer_nightstand_walnut": {
+      "file": "furniture/article/cooper_1_drawer_nightstand_walnut.json",
+      "name": "Cooper 1-Drawer Nightstand - Walnut",
+      "x": "0' 0\"",
+      "y": "12' 5 3/4\"",
+      "rotation": 90,
+      "front_faces": "east",
+      "center": {
+        "x": "0' 7 1/8\"",
+        "y": "11' 8\""
+      }
+    },
+    "article/cooper_6_drawer_dresser_walnut": {
+      "file": "furniture/article/cooper_6_drawer_dresser_walnut.json",
+      "name": "Cooper 6-Drawer Double Dresser - Walnut",
+      "x": "3' 0\"",
+      "y": "0' 0\"",
+      "rotation": 0,
+      "front_faces": "north",
+      "center": {
+        "x": "5' 3\"",
+        "y": "0' 8 1/2\""
+      }
+    },
+    "article/cooper_king_low_profile_bed_walnut": {
+      "file": "furniture/article/cooper_king_low_profile_bed_walnut.json",
+      "name": "Cooper King Low Profile Bed - Walnut",
+      "x": "0' 0\"",
+      "y": "10' 10 1/4\"",
+      "rotation": 90,
+      "front_faces": "east",
+      "center": {
+        "x": "3' 7 1/8\"",
+        "y": "7' 6 1/2\""
+      }
+    }
+  },
+  "not_placed": [
+    "article/frances_36_bookcase_storage_walnut",
+    "article/lenia_king_panel_bed_walnut",
+    "room_and_board/arden_9x12_low_loop_oatmeal_rug",
+    "room_and_board/eos_42_swivel_chair",
+    "room_and_board/hastings_9x12_ivory_taupe_rug",
+    "room_and_board/hudson_dresser",
+    "room_and_board/hudson_king_bed",
+    "room_and_board/hudson_two_drawer_nightstand",
+    "room_and_board/kayseri_9x12_moss_rug",
+    "room_and_board/nomad_9x12_olive_rug"
+  ]
+}

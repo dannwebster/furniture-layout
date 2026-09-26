@@ -1,0 +1,14 @@
+{
+  "name": "furniture-layout",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local tool for laying out bedroom furniture from JSON files",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js --open",
+    "serve": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

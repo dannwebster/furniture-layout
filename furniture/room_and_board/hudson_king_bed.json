@@ -1,0 +1,92 @@
+{
+  "units": "inches",
+  "coordinate_system": {
+    "origin": "back_left_floor_corner",
+    "x_axis": "right",
+    "y_axis": "forward",
+    "z_axis": "up"
+  },
+  "furniture": {
+    "name": "Hudson King Bed",
+    "collection": "Hudson",
+    "type": "bed",
+    "manufacturer": "Room & Board",
+    "item_number": "370938",
+    "size": "king",
+    "dimensions": {
+      "width": 79,
+      "depth": 85,
+      "height": 42
+    }
+  },
+  "geometry": {
+    "bounding_box": {
+      "min": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "max": {
+        "x": 79,
+        "y": 85,
+        "z": 42
+      }
+    },
+    "headboard_height": 42,
+    "footboard_height": 13.25,
+    "floor_to_bottom_of_mattress": 12,
+    "mattress_space": {
+      "width": 76.75,
+      "depth": 81
+    }
+  },
+  "materials": {
+    "wood": {
+      "species": "walnut",
+      "finish": "lacquer",
+      "features": [
+        "solid wood",
+        "slightly lightens over time",
+        "lacquer finish",
+        "responsibly made",
+        "sustainable materials"
+      ]
+    }
+  },
+  "construction": {
+    "frame": "benchmade solid wood frame with reinforced joinery",
+    "mattress_support": {
+      "type": "slats",
+      "slat_count": 14,
+      "slat_width": 2,
+      "slat_height": 0.75,
+      "box_spring_required": false
+    },
+    "includes": [
+      "complete bed frame",
+      "mattress support system"
+    ],
+    "mattress_included": false,
+    "compatible_with": [
+      "Room & Board adjustable mattress bases"
+    ],
+    "assembly": "delivery includes assembly"
+  },
+  "metadata": {
+    "approximate_product_weight_lbs": 210,
+    "product_origin": "West Virginia, United States",
+    "material_origin": "United States and imported",
+    "price": {
+      "currency": "USD",
+      "configured_price": 2999,
+      "price_source": "user_provided",
+      "price_as_of": "2026-09-26"
+    },
+    "product_url": "https://www.roomandboard.com/catalog/bedroom/beds/hudson-bed/370938?CHAR_370938_HUDSON_COLL_WOOD=WA",
+    "source_retrieved": "2026-09-26",
+    "notes": [
+      "Configured as a king-size Hudson bed in walnut.",
+      "Room & Board recommends a mattress height of 13 inches or shorter for ideal proportions."
+    ]
+  }
+}
