@@ -1604,11 +1604,23 @@ $('#gridToggle').addEventListener('change', e => { state.showGrid = e.target.che
 // ~60 times a second after changes, and on request when it (re)opens ("hello"). A timer rather
 // than requestAnimationFrame, so updates still go out while this page is a background tab.
 const view3d = { chan: null, queued: false, win: null };
+// Every open layout tab shares the channel, so scenes are tagged with this tab's id and the popup
+// only follows the tab that opened it (a stale tab would otherwise snap it back to an old layout).
+// sessionStorage keeps the id across this tab's own reloads.
+const TAB_ID = (() => {
+  const fresh = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+  try {
+    let id = sessionStorage.getItem('furnitureLayout.tabId');
+    if (!id) sessionStorage.setItem('furnitureLayout.tabId', id = fresh());
+    return id;
+  } catch { return fresh(); }
+})();
 
 function sceneMessage() {
   const r = state.room;
   return {
     type: 'scene',
+    source: TAB_ID,
     colors: state.colors,
     room: r && { width: r.width, length: r.length, ceiling: r.ceiling, colors: r.colors, openings: r.openings },
     items: state.items.map(it => ({
@@ -1626,12 +1638,14 @@ function postScene() {
 
 if ('BroadcastChannel' in window) {
   view3d.chan = new BroadcastChannel(VIEW3D_CHANNEL);
-  view3d.chan.onmessage = e => { if (e.data && e.data.type === 'hello') postScene(); };
+  view3d.chan.onmessage = e => {
+    if (e.data && e.data.type === 'hello' && (!e.data.source || e.data.source === TAB_ID)) postScene();
+  };
 }
 
 $('#btn3d').addEventListener('click', () => {
   if (view3d.win && !view3d.win.closed) { view3d.win.focus(); return; }
-  view3d.win = window.open('/room3d.html', 'room3d', 'width=1280,height=800');
+  view3d.win = window.open(`/room3d.html?source=${encodeURIComponent(TAB_ID)}`, 'room3d', 'width=1280,height=800');
   if (!view3d.win) toast('The browser blocked the 3D window — allow pop-ups for this page.', true);
 });
 

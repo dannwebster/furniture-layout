@@ -120,12 +120,14 @@ scene.add(lamp);
 
 // ==== Materials ====
 const matCache = new Map();
-function mat(hex, { rough = 0.8, metal = 0, opacity = 1 } = {}) {
-  const key = `${hex}|${rough}|${metal}|${opacity}`;
+// glow: emissive strength in the material's own color, for surfaces the lights can't reach.
+function mat(hex, { rough = 0.8, metal = 0, opacity = 1, glow = 0 } = {}) {
+  const key = `${hex}|${rough}|${metal}|${opacity}|${glow}`;
   if (!matCache.has(key)) {
     matCache.set(key, new THREE.MeshStandardMaterial({
       color: new THREE.Color(hex), roughness: rough, metalness: metal,
       transparent: opacity < 1, opacity, depthWrite: opacity >= 1,
+      emissive: new THREE.Color(glow > 0 ? hex : '#000000'), emissiveIntensity: glow,
     }));
   }
   return matCache.get(key);
@@ -227,7 +229,9 @@ function buildRoom(room) {
   floor.receiveShadow = true;
   roomGroup.add(floor);
 
-  ceilingMesh = new THREE.Mesh(new THREE.PlaneGeometry(W + 2 * WALL, L + 2 * WALL), mat(resolve([c.ceiling], 'ceiling', roomUnmapped), { rough: 1 }));
+  // The sun is above the ceiling and the hemisphere light's ground colour is tan, so on its own the
+  // ceiling only gets a dim brown fill; the glow stands in for light bounced off the floor and walls.
+  ceilingMesh = new THREE.Mesh(new THREE.PlaneGeometry(W + 2 * WALL, L + 2 * WALL), mat(resolve([c.ceiling], 'ceiling', roomUnmapped), { rough: 1, glow: 0.6 }));
   ceilingMesh.rotation.x = Math.PI / 2;
   ceilingMesh.position.set(W / 2, H, L / 2);
   ceilingMesh.visible = showCeiling;
@@ -484,6 +488,8 @@ function buildFurniture(items) {
 
 // ==== Scene updates from the layout page ====
 let gotScene = false;
+// The layout tab that opened this window; scenes from any other open layout tab are ignored.
+const SOURCE = new URLSearchParams(location.search).get('source');
 function applyScene(msg) {
   if (!msg.room) return;
   gotScene = true;
@@ -501,9 +507,11 @@ function applyScene(msg) {
 
 if ('BroadcastChannel' in window) {
   const chan = new BroadcastChannel(CHANNEL);
-  chan.onmessage = e => { if (e.data && e.data.type === 'scene') applyScene(e.data); };
+  chan.onmessage = e => {
+    if (e.data && e.data.type === 'scene' && (!SOURCE || e.data.source === SOURCE)) applyScene(e.data);
+  };
   // Ask for the scene until the layout page answers (it may still be loading).
-  const hello = () => { if (!gotScene) { chan.postMessage({ type: 'hello' }); setTimeout(hello, 1500); } };
+  const hello = () => { if (!gotScene) { chan.postMessage({ type: 'hello', source: SOURCE }); setTimeout(hello, 1500); } };
   hello();
   setTimeout(() => { if (!gotScene) $('#waiting').hidden = false; }, 2000);
 } else {

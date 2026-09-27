@@ -7,6 +7,7 @@
 // (by source URL); --force downloads everything again. Filters match against the product path.
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
@@ -118,33 +119,38 @@ const ldImages = p => [].concat(p.image || []).map(i => (typeof i === 'string' ?
 // ---- Retailer scrapers: each returns { title, photos: [{ url, kind, caption }] } ----
 
 // Room & Board (Next.js): configured product render + detail close-ups + room scenes, served from Scene7.
-function roomAndBoard(html) {
+function roomAndBoard(html, pageUrl) {
   const ld = jsonLdProducts(html)[0];
   const nd = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
   const model = nd ? JSON.parse(nd[1]).props?.pageProps?.productPageStore?.productPageModel : null;
   const group = model?.productGroup || {};
   const photos = [];
-  // The JSON-LD image follows the URL's CHAR_* configuration for most products, the override's default
-  // product for others (e.g. upholstery), so keep both; identical URLs collapse later.
-  const renders = [
-    ...(ld ? ldImages(ld) : []),
-    model?.configurationOverride?.defaultProduct?.imageData?.imageUrl,
-    model?.defaultProduct?.imageData?.imageUrl,
-  ].filter(Boolean);
-  for (const r of renders) {
+  // Neither render source reliably shows the URL's CHAR_* configuration: the JSON-LD image does for case goods
+  // (e.g. Hudson nightstand), the override's default product does for upholstery (e.g. Eos fabric). If every
+  // CHAR code appears in the JSON-LD render it's the right one; otherwise keep both, the second as product-alt.
+  // (model.defaultProduct is the collection's default piece, often a different size, so it's not used.)
+  const ldRender = ld ? ldImages(ld)[0] : null;
+  const altRender = model?.configurationOverride?.defaultProduct?.imageData?.imageUrl;
+  const codes = [...new URL(pageUrl).searchParams].filter(([k]) => k.startsWith('CHAR_')).map(([, v]) => v);
+  const ldMatches = ldRender && codes.length && codes.every(c => ldRender.includes(c));
+  const renders = [ldRender, ldMatches ? null : altRender].filter(Boolean);
+  for (const [i, r] of renders.entries()) {
     // Composite/render URLs repeat query keys (layer=, src=), so edit the string rather than URLSearchParams.
     // Scene7 refuses anything over SCENE7_MAX on a side (scl=1 403s for large renders), so ask for a bounded box.
     const bare = r.replace(/([?&])scl=[^&]*(&|$)/, '$1').replace(/[?&]$/, '');
     const url = bare + (bare.includes('?') ? '&' : '?') + `wid=${SCENE7_MAX}&hei=${SCENE7_MAX}&fit=constrain`;
-    photos.push({ url, kind: 'product', caption: ld?.name || model?.defaultProduct?.detailTitle });
+    photos.push({ url, kind: i ? 'product-alt' : 'product', caption: ld?.name || model?.defaultProduct?.detailTitle });
   }
   const scene7 = (media, kind) => {
     for (const m of media || []) {
       if (m.type !== 'IMAGE' || !m.image?.src) continue;
       const src = m.image.src;
+      if (/^https?:/.test(src)) { photos.push({ url: src, kind, caption: m.caption || m.image.altText, alt: m.image.altText }); continue; }
+      // The listed width isn't always what Scene7 will serve (some assets 403 above their real size), so step down.
+      const base = SCENE7 + encodeURIComponent(src);
       const w = Math.min(m.image.width || SCENE7_MAX, SCENE7_MAX);
-      const url = /^https?:/.test(src) ? src : `${SCENE7}${encodeURIComponent(src)}?wid=${w}&qlt=90`;
-      photos.push({ url, kind, caption: m.caption || m.image.altText, alt: m.image.altText });
+      const fallbacks = [2000, 1200].filter(x => x < w).map(x => `${base}?wid=${x}&qlt=90`);
+      photos.push({ url: `${base}?wid=${w}&qlt=90`, fallbacks, kind, caption: m.caption || m.image.altText, alt: m.image.altText });
     }
   };
   scene7(group.dimensionMediaSet, 'dimensions');
@@ -210,21 +216,32 @@ async function processProduct(rel) {
   await fsp.mkdir(dir, { recursive: true });
 
   const width = Math.max(2, String(photos.length).length);
-  const results = await Promise.all(photos.map(async (p, i) => {
+  // Download in parallel, then write in page order so duplicate detection keeps the earliest copy.
+  const fetched = await Promise.all(photos.map(async p => {
     const old = reuse.get(p.url);
-    if (old && fs.existsSync(path.join(dir, old))) return { ...p, file: old, skipped: true };
-    try {
-      const buf = await fetchImage(p.url);
-      const ext = imageExt(buf);
-      if (!ext) throw new Error(`not an image (${buf.length} bytes)`);
-      const tag = p.kind === 'product' || p.kind === 'gallery' ? '' : slug(p.caption);
-      const file = `${String(i + 1).padStart(width, '0')}-${p.kind}${tag ? '-' + tag : ''}.${ext}`;
-      await fsp.writeFile(path.join(dir, file), buf);
-      return { ...p, file, bytes: buf.length };
-    } catch (err) {
-      return { ...p, error: err.message };
+    if (old && fs.existsSync(path.join(dir, old))) return { p, old, buf: await fsp.readFile(path.join(dir, old)) };
+    const urls = [p.url, ...(p.fallbacks || [])];
+    for (const [j, u] of urls.entries()) {
+      try { return { p, buf: await fetchImage(u) }; }
+      catch (err) { if (j === urls.length - 1) return { p, error: err.message }; }
     }
   }));
+  const hashes = new Set();
+  const results = [];
+  for (const [i, { p, old, buf, error }] of fetched.entries()) {
+    if (error) { results.push({ ...p, error }); continue; }
+    const ext = imageExt(buf);
+    if (!ext) { results.push({ ...p, error: `not an image (${buf.length} bytes)` }); continue; }
+    // Different URLs sometimes serve the same bytes (e.g. both Room & Board renders).
+    const hash = crypto.createHash('sha1').update(buf).digest('hex');
+    if (hashes.has(hash)) continue;
+    hashes.add(hash);
+    if (old) { results.push({ ...p, file: old, skipped: true }); continue; }
+    const tag = /^(product|gallery)/.test(p.kind) ? '' : slug(p.caption);
+    const file = `${String(i + 1).padStart(width, '0')}-${p.kind}${tag ? '-' + tag : ''}.${ext}`;
+    await fsp.writeFile(path.join(dir, file), buf);
+    results.push({ ...p, file });
+  }
 
   const ok = results.filter(r => r.file);
   // Drop photos an earlier run saved that the page no longer lists (only files our own manifest recorded).

@@ -1,6 +1,6 @@
 {
   "room_file": "room_layout.json",
-  "saved": "2026-09-27T01:13:51.050Z",
+  "saved": "2026-09-27T01:17:18.513Z",
   "units": "feet_inches",
   "coordinate_system": {
     "origin": "southwest_corner",
@@ -21,24 +21,24 @@
     "8x10/arden_8x10_low_loop_oatmeal_rug": {
       "file": "rugs/8x10/arden_8x10_low_loop_oatmeal_rug.json",
       "name": "Arden 8'x10' Low Loop Rug",
-      "x": "0' 0\"",
-      "y": "2' 11 1/2\"",
+      "x": "0' 2\"",
+      "y": "2' 3\"",
       "rotation": 0,
       "front_faces": "north",
       "center": {
-        "x": "4' 0\"",
-        "y": "7' 11 1/2\""
+        "x": "4' 2\"",
+        "y": "7' 3\""
       }
     },
     "room_and_board/eos_42_swivel_chair": {
       "file": "furniture/room_and_board/eos_42_swivel_chair.json",
       "name": "Eos 42-inch Swivel Chair",
-      "x": "10' 1 11/16\"",
-      "y": "13' 10\"",
+      "x": "10' 9 11/16\"",
+      "y": "14' 5\"",
       "rotation": 225,
       "center": {
-        "x": "7' 8\"",
-        "y": "13' 10\""
+        "x": "8' 4\"",
+        "y": "14' 5\""
       }
     },
     "room_and_board/hudson_dresser": {
@@ -57,36 +57,36 @@
       "file": "furniture/room_and_board/hudson_king_bed.json",
       "name": "Hudson King Bed",
       "x": "0' 0\"",
-      "y": "11' 4\"",
+      "y": "10' 8\"",
       "rotation": 90,
       "front_faces": "east",
       "center": {
         "x": "3' 6 1/2\"",
-        "y": "8' 1/2\""
+        "y": "7' 4 1/2\""
       }
     },
     "room_and_board/hudson_two_drawer_nightstand": {
       "file": "furniture/room_and_board/hudson_two_drawer_nightstand.json",
       "name": "Hudson 26w 20d 22h Two-Drawer Nightstand",
       "x": "0' 0\"",
-      "y": "4' 9\"",
+      "y": "4' 1\"",
       "rotation": 90,
       "front_faces": "east",
       "center": {
         "x": "0' 10\"",
-        "y": "3' 8\""
+        "y": "3' 0\""
       }
     },
     "room_and_board/hudson_two_drawer_nightstand#2": {
       "file": "furniture/room_and_board/hudson_two_drawer_nightstand.json",
       "name": "Hudson 26w 20d 22h Two-Drawer Nightstand",
       "x": "0' 0\"",
-      "y": "13' 6\"",
+      "y": "12' 10\"",
       "rotation": 90,
       "front_faces": "east",
       "center": {
         "x": "0' 10\"",
-        "y": "12' 5\""
+        "y": "11' 9\""
       }
     },
     "room_and_board/woodwind_86h_two_door_bookcase": {
