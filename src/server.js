@@ -3,8 +3,10 @@
 //   node server.js [data-dir] [--output <dir>] [--open]
 //   GET  /                 the layout page
 //   GET  /room3d.html      the 3D view (opened as a popup from the layout page)
-//   GET  /api/project      { dataDir, files }: room_layout.json, material_colors.json, every .json under
-//                          furniture/ and rugs/ (paths relative to the data dir), plus furniture_placements.json
+//   GET  /api/project      { dataDir, files, photos }: room_layout.json, material_colors.json, every .json under
+//                          furniture/ and rugs/ (paths relative to the data dir), plus furniture_placements.json;
+//                          photos maps product paths (minus .json) to their main photo from fetch-photos.js
+//   GET  /photos/...       those photos, from <output>/photos/
 //   PUT  /api/placements   write <output>/furniture_placements.json (POST also accepted, for sendBeacon)
 //   GET  /api/events       server-sent events: "change" when data files change, "page" when a page changes
 //   node server.js [data-dir] --build
@@ -93,6 +95,8 @@ const ROOM_FILE = 'room_layout.json';
 const COLORS_FILE = 'material_colors.json';
 const PRODUCT_DIRS = ['furniture', 'rugs']; // under DATA_DIR; one JSON file per product, any depth
 const PLACEMENTS_FILE = 'furniture_placements.json'; // under OUTPUT_DIR
+const PHOTO_MANIFEST = 'sources.json'; // written by fetch-photos.js beside each product's photos
+const IMAGE_TYPES = { '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.avif': 'image/avif', '.gif': 'image/gif' };
 const MAX_BODY = 1024 * 1024;
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -107,6 +111,7 @@ function resolveDataDir(dir) {
 
 const DATA_DIR = resolveDataDir(path.resolve(args.data || process.env.DATA_DIR || path.join(__dirname, '..', 'data')));
 const OUTPUT_DIR = path.resolve(args.output || process.env.OUTPUT_DIR || defaultOutputDir(DATA_DIR));
+const PHOTOS_DIR = path.join(OUTPUT_DIR, 'photos'); // fetch-photos.js's default --out
 
 // Fail loudly on a bad path rather than serving an empty room.
 try {
@@ -135,6 +140,31 @@ async function listJson(dir) {
   }
   await walk(dir);
   return out.sort();
+}
+
+// Main photo per product, from the sources.json files fetch-photos.js writes under <output>/photos/:
+// { "furniture/room_and_board/hudson_dresser": "photos/furniture/room_and_board/hudson_dresser/01-product.webp" }.
+// Keys are product paths minus .json; values are URLs relative to the page, which /photos/ serves and a
+// --build page (written to OUTPUT_DIR, beside photos/) resolves on its own.
+async function readPhotos() {
+  const photos = {};
+  async function walk(rel) {
+    let entries;
+    try { entries = await fsp.readdir(path.join(PHOTOS_DIR, rel), { withFileTypes: true }); }
+    catch (err) { if (err.code === 'ENOENT') return; throw err; }
+    for (const e of entries) {
+      if (e.isDirectory()) { await walk(path.posix.join(rel, e.name)); continue; }
+      if (e.name !== PHOTO_MANIFEST) continue;
+      let list;
+      try { list = JSON.parse(await fsp.readFile(path.join(PHOTOS_DIR, rel, e.name), 'utf8')).photos; } catch { continue; }
+      const main = Array.isArray(list) && (list.find(p => p && p.kind === 'product' && p.file) || list.find(p => p && p.file));
+      if (main && path.basename(main.file) === main.file) {
+        photos[rel] = ['photos', ...rel.split('/'), main.file].map(encodeURIComponent).join('/');
+      }
+    }
+  }
+  for (const dir of PRODUCT_DIRS) await walk(dir);
+  return photos;
 }
 
 async function readProject() {
@@ -230,8 +260,15 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, await fsp.readFile(path.join(APP_DIR, VIEW3D_FILE)), 'text/html; charset=utf-8');
     }
     if (req.method === 'GET' && url.pathname === '/api/project') {
-      const body = { dataDir: DATA_DIR, files: await readProject() };
+      const body = { dataDir: DATA_DIR, files: await readProject(), photos: await readPhotos() };
       return send(res, 200, JSON.stringify(body), 'application/json; charset=utf-8');
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/photos/')) {
+      const file = path.join(PHOTOS_DIR, decodeURIComponent(url.pathname.slice('/photos/'.length)));
+      const type = IMAGE_TYPES[path.extname(file).toLowerCase()];
+      if (!type || !file.startsWith(PHOTOS_DIR + path.sep)) return send(res, 404, 'Not found');
+      try { return send(res, 200, await fsp.readFile(file), type); }
+      catch (err) { if (err.code === 'ENOENT') return send(res, 404, 'Not found'); throw err; }
     }
     if ((req.method === 'PUT' || req.method === 'POST') && url.pathname === '/api/placements') {
       await writePlacements(await readBody(req));
@@ -264,7 +301,7 @@ async function build() {
   const files = await readProject();
   const room3d = injectHead(await fsp.readFile(path.join(APP_DIR, VIEW3D_FILE), 'utf8'),
     '<script>window.FURNITURE_LAYOUT_STANDALONE = true;</script>', VIEW3D_FILE);
-  const payload = { built: new Date().toISOString(), dataDir: DATA_DIR, files, room3d };
+  const payload = { built: new Date().toISOString(), dataDir: DATA_DIR, files, photos: await readPhotos(), room3d };
   const page = injectHead(await fsp.readFile(path.join(APP_DIR, PAGE_FILE), 'utf8'),
     `<script>window.FURNITURE_LAYOUT_EMBEDDED = ${inlineJson(payload)};</script>`, PAGE_FILE);
   await fsp.mkdir(OUTPUT_DIR, { recursive: true });

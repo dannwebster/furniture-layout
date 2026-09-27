@@ -124,6 +124,9 @@
   .stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .item.some .stepper input { font-weight: 700; color: var(--accent); }
   #inspector h3 { margin: 0 0 2px; font-size: 15px; }
+  #insPhotoLink { display: block; margin-top: 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  #insPhotoLink[hidden] { display: none; }
+  #insPhoto { display: block; width: 100%; max-height: 180px; object-fit: contain; }
   .fields { display: grid; gap: 8px; margin: 10px 0; }
   .fields label { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
   .fields input, select {
@@ -315,6 +318,7 @@
       <div id="inspector" hidden>
         <h3 id="insName"></h3>
         <div class="muted" id="insMeta"></div>
+        <a id="insPhotoLink" target="_blank" rel="noopener" title="Open the full photo" hidden><img id="insPhoto" alt=""></a>
         <div class="fields">
           <label>X — back-left corner, from west wall<input id="insX" autocomplete="off"></label>
           <label>Y — back-left corner, from south wall<input id="insY" autocomplete="off"></label>
@@ -351,7 +355,7 @@ const COLORS_FILE = 'material_colors.json';
 const VIEW3D_CHANNEL = 'furniture-layout-3d';
 const PLACEMENTS_FILE = 'furniture_placements.json';
 const LS_PREFS = 'furnitureLayout.prefs';
-// Set by `server.js --build`: { built, dataDir, files, room3d } baked into a standalone copy of this page.
+// Set by `server.js --build`: { built, dataDir, files, photos, room3d } baked into a standalone copy of this page.
 const EMBEDDED = window.FURNITURE_LAYOUT_EMBEDDED || null;
 const LS_STANDALONE = 'furnitureLayout.standalone.placements';
 const EPS = 0.05;
@@ -436,6 +440,7 @@ const state = {
   dirty: false,
   problems: new Set(),
   colors: null,        // material_colors.json, passed through to the 3D view
+  photos: {},          // product path minus .json → main photo URL (from fetch-photos.js, via the server or build)
 };
 
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -1229,6 +1234,14 @@ function renderInspector() {
   $('#insName').textContent = it.label;
   $('#insMeta').textContent = [it.name, `${fmtFI(it.width)} W × ${fmtFI(it.depth)} D` + (it.height ? ` × ${fmtFI(it.height)} H` : ''),
     it.price && it.price.text, count > 1 ? `${it.n} of ${count}` : null].filter(Boolean).join(' · ');
+  // Photos come from `npm run photos`; a product without one (or a photo that fails to load) shows none.
+  const photo = state.photos[it.file.replace(/\.json$/i, '')];
+  const img = $('#insPhoto'), link = $('#insPhotoLink');
+  if (photo && link.getAttribute('href') !== photo) {
+    link.href = img.src = photo;
+    img.alt = it.name;
+  }
+  link.hidden = !photo || img.dataset.failed === photo;
   const setVal = (sel, v) => { const inp = $(sel); if (document.activeElement !== inp) { inp.value = v; inp.classList.remove('invalid'); } };
   const o = roomOrigin(it);
   setVal('#insX', fmtFI(o.x));
@@ -1394,6 +1407,7 @@ function saveLocal() {
 
 function loadEmbedded(useSaved = true) {
   state.dataDir = EMBEDDED.dataDir || null;
+  state.photos = isObj(EMBEDDED.photos) ? EMBEDDED.photos : {};
   let files = EMBEDDED.files;
   const local = useSaved ? safeParse(lsGet(LS_STANDALONE)) : null;
   if (isObj(local) && typeof local.text === 'string') {
@@ -1441,8 +1455,9 @@ async function fetchProject(announce = false) {
   try {
     const r = await fetch('/api/project', { cache: 'no-store' });
     if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
-    const { files, dataDir } = await r.json();
+    const { files, dataDir, photos } = await r.json();
     state.dataDir = dataDir || null;
+    state.photos = isObj(photos) ? photos : {};
     if (loadProject(files) && announce) toast('Files changed — reloaded.');
   } catch (err) {
     if (!state.room) { state.loadError = `Could not reach the server: ${err.message}`; refreshAll(); }
@@ -1586,6 +1601,10 @@ $('#insRot').addEventListener('change', e => {
   it.rot = normRot(v); // rotates about the center, like the handle and buttons
   e.target.value = it.rot;
   refreshMoving(it); commit();
+});
+$('#insPhoto').addEventListener('error', () => {
+  $('#insPhoto').dataset.failed = $('#insPhotoLink').getAttribute('href');
+  $('#insPhotoLink').hidden = true;
 });
 document.querySelectorAll('#inspector input').forEach(inp =>
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); }));
