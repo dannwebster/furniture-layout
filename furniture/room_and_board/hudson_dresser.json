@@ -47,32 +47,30 @@
   "materials": {
     "case": {
       "wood": "walnut",
-      "color": "charcoal",
       "finish": "lacquer",
       "features": [
         "solid wood",
-        "minimal color change over time",
+        "slightly lightens over time",
+        "lacquer finish",
         "responsibly made",
         "sustainable materials"
       ]
     },
     "base": {
       "style": "wood base",
-      "material": "walnut",
-      "color": "charcoal",
+      "wood": "walnut",
       "finish": "lacquer",
       "features": [
         "solid wood",
-        "minimal color change over time",
+        "slightly lightens over time",
+        "lacquer finish",
         "responsibly made",
         "sustainable materials"
       ]
     },
     "hardware": {
-      "material": "stainless steel",
-      "features": [
-        "fade resistant"
-      ]
+      "material": "natural steel",
+      "finish": "lacquer"
     }
   },
   "construction": {
@@ -90,7 +88,7 @@
   "metadata": {
     "price": {
       "currency": "USD",
-      "configured_price": 3599,
+      "configured_price": 3999,
       "price_source": "user_provided",
       "price_as_of": "2026-09-26"
     },
@@ -105,8 +103,8 @@
     "source_variant_url": "https://www.roomandboard.com/catalog/bedroom/dressers/hudson-dressers/564319",
     "source_retrieved": "2026-09-26",
     "notes": [
-      "Hudson is a configurable collection with multiple woods, base styles, and hardware options.",
-      "Material/color fields here reflect the configuration exposed by the Room & Board source page used for this file."
+      "Configured with walnut case and matching walnut wood base, to match the Hudson bed and nightstand.",
+      "Configured with natural steel hardware."
     ]
   }
 }
