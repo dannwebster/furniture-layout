@@ -13,7 +13,13 @@
 //   POST /api/export-zip?name=&content=data|site
 //                          write layout-<timestamp>.zip (data: the posted Export data JSON + its products'
 //                          photos) or layout-site-<timestamp>.zip (the --build page as index.html + all photos)
-//   GET  /api/events       server-sent events: "change" when data files change, "page" when a page changes
+//   POST /api/render       render the 3D view's current point of view as a photo (see render.mjs) into
+//                          <output>/renders/render-<timestamp>/, returning that render's meta.json
+//   GET  /api/render/config which image providers and models the keys in .env allow (no keys in the reply)
+//   GET  /api/renders      the meta.json of every saved render, newest first
+//   GET  /renders/...      the saved render images, from <output>/renders/
+//   GET  /api/events       server-sent events: "change" when data files change, "page" when a page changes,
+//                          "render" with { stage, ... } while a render runs
 //   node server.js [data-dir] --build
 //                          instead of serving, write <output>/furniture-layout.html: one standalone page with
 //                          the project data and the 3D view baked in, which runs from file:// with no server
@@ -43,7 +49,13 @@ Options:
   -h, --help           show this message
 
 Environment: PORT (default 3000), HOST (default 127.0.0.1), DATA_DIR, OUTPUT_DIR.
-Command-line options win over the environment.`;
+Command-line options win over the environment.
+
+Rendering the 3D view as a photo needs API keys, read from .env in the data folder or the project
+around it, else beside package.json (a real environment variable wins over all of them):
+GEMINI_API_KEY and/or OPENAI_API_KEY for the image model, ANTHROPIC_API_KEY for the optional
+prompt-writing and result-checking passes. RENDER_MODEL_GEMINI, RENDER_MODEL_OPENAI,
+RENDER_PROMPT_MODEL and RENDER_PROVIDER override the defaults.`;
 
 function fail(message) {
   console.error(`server.js: ${message}`);
@@ -94,6 +106,23 @@ function defaultOutputDir(dataDir) {
 const args = parseArgs(process.argv.slice(2));
 if (args.help) { console.log(USAGE); process.exit(0); }
 
+// API keys for the render feature live in a .env file rather than the environment, since "npm start"
+// on Windows makes exported variables awkward. The data project's .env is read first — keys and model
+// choices belong with the room they're rendering — then this repo's, and a real environment variable
+// wins over both. Whichever file sets a name first keeps it.
+function loadEnv(...dirs) {
+  for (const dir of dirs) {
+    let text;
+    try { text = fs.readFileSync(path.join(dir, '.env'), 'utf8'); } catch { continue; }
+    for (const line of text.split(/\r?\n/)) {
+      const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+      if (!m || line.trimStart().startsWith('#')) continue;
+      const value = m[2].trim().replace(/^(['"])(.*)\1$/, '$2');
+      if (process.env[m[1]] === undefined) process.env[m[1]] = value;
+    }
+  }
+}
+
 const APP_DIR = __dirname;
 const PAGE_FILE = 'furniture-layout.html';
 const VIEW3D_FILE = 'room3d.html';
@@ -108,8 +137,7 @@ const MAX_EXPORT = 50 * 1024 * 1024; // a plan PNG runs to a few MB
 // Exports are written straight into OUTPUT_DIR, so only the page's own timestamped names are accepted.
 const EXPORT_NAME = /^layout-\d{8}T\d{6}Z\.(json|png)$/;
 const ZIP_NAME = /^layout-(site-)?\d{8}T\d{6}Z\.zip$/;
-const PORT = Number(process.env.PORT) || 3000;
-const HOST = process.env.HOST || '127.0.0.1';
+const RENDERS_SUBDIR = 'renders'; // under OUTPUT_DIR; one folder per render, named by timestamp
 
 // A data project that keeps its input in data/ (beside the output/ we write) can be named either
 // way: given the project root, descend into data/ when that's where the room file actually is.
@@ -120,8 +148,22 @@ function resolveDataDir(dir) {
 }
 
 const DATA_DIR = resolveDataDir(path.resolve(args.data || process.env.DATA_DIR || path.join(__dirname, '..', 'data')));
+// Now that the data folder is known, read the .env files: the data folder, then the project around it
+// (where a nested data/ has its sibling output/), then this repo. DATA_DIR is the one thing they can't
+// set, since it had to be resolved to find them; everything below is fair game.
+loadEnv(DATA_DIR, path.join(DATA_DIR, '..'), path.join(APP_DIR, '..'));
+
 const OUTPUT_DIR = path.resolve(args.output || process.env.OUTPUT_DIR || defaultOutputDir(DATA_DIR));
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || '127.0.0.1';
+// Which image model each provider uses; override in .env when the providers move on.
+const RENDER_MODELS = {
+  gemini: process.env.RENDER_MODEL_GEMINI || 'gemini-3-pro-image',
+  openai: process.env.RENDER_MODEL_OPENAI || 'gpt-image-2.5-flare',
+};
+const RENDER_PROMPT_MODEL = process.env.RENDER_PROMPT_MODEL || 'claude-opus-5';
 const PHOTOS_DIR = path.join(OUTPUT_DIR, 'photos'); // fetch-photos.js's default --out
+const RENDERS_DIR = path.join(OUTPUT_DIR, RENDERS_SUBDIR);
 
 // Fail loudly on a bad path rather than serving an empty room.
 try {
@@ -177,6 +219,20 @@ async function readPhotos() {
   return photos;
 }
 
+// The meta.json of every saved render, newest first. Each render is one folder under <output>/renders/,
+// so the folder names sort by time on their own.
+async function readRenders() {
+  let names;
+  try { names = await fsp.readdir(RENDERS_DIR, { withFileTypes: true }); }
+  catch (err) { if (err.code === 'ENOENT') return []; throw err; }
+  const metas = [];
+  for (const e of names.filter(e => e.isDirectory()).sort((a, b) => b.name.localeCompare(a.name))) {
+    try { metas.push(JSON.parse(await fsp.readFile(path.join(RENDERS_DIR, e.name, 'meta.json'), 'utf8'))); }
+    catch { /* a render still being written, or hand-made folder */ }
+  }
+  return metas;
+}
+
 async function readProject() {
   const files = [];
   const add = async (rel, dir = DATA_DIR) => {
@@ -215,10 +271,11 @@ function parsePlacements(text) {
   return doc;
 }
 
-// Write a file straight into OUTPUT_DIR (created if missing) and return its path.
+// Write a file into OUTPUT_DIR (folders created as needed) and return its path. The name may be a
+// relative path, which is how renders land in their own folder.
 async function writeOutput(name, data) {
-  await fsp.mkdir(OUTPUT_DIR, { recursive: true });
   const target = path.join(OUTPUT_DIR, name);
+  await fsp.mkdir(path.dirname(target), { recursive: true });
   await fsp.writeFile(target, data);
   return target;
 }
@@ -241,8 +298,9 @@ async function writePlacements(text) {
 
 // ---- Live updates ----
 const clients = new Set();
-function broadcast(event) {
-  for (const res of clients) res.write(`event: ${event}\ndata: {}\n\n`);
+function broadcast(event, data) {
+  const payload = JSON.stringify(data === undefined ? {} : data);
+  for (const res of clients) res.write(`event: ${event}\ndata: ${payload}\n\n`);
 }
 
 // OUTPUT_DIR isn't watched: our own writes to furniture_placements.json are deliberately not broadcast.
@@ -276,6 +334,24 @@ function send(res, status, body, type = 'text/plain; charset=utf-8') {
 }
 const sendJson = (res, value) => send(res, 200, JSON.stringify(value), 'application/json; charset=utf-8');
 
+// An image from a folder under OUTPUT_DIR, named by the rest of the URL. Images only, and never
+// outside that folder.
+async function sendImage(res, root, rel) {
+  const file = path.join(root, decodeURIComponent(rel));
+  const type = IMAGE_TYPES[path.extname(file).toLowerCase()];
+  if (!type || !file.startsWith(root + path.sep)) return send(res, 404, 'Not found');
+  try { return send(res, 200, await fsp.readFile(file), type); }
+  catch (err) { if (err.code === 'ENOENT') return send(res, 404, 'Not found'); throw err; }
+}
+
+// What the render panel may ask for: a provider needs its key, and the optional Claude passes need theirs.
+const renderConfig = () => ({
+  providers: { gemini: !!process.env.GEMINI_API_KEY, openai: !!process.env.OPENAI_API_KEY },
+  claude: !!process.env.ANTHROPIC_API_KEY,
+  models: { ...RENDER_MODELS, prompt: RENDER_PROMPT_MODEL },
+  defaultProvider: process.env.RENDER_PROVIDER || 'gemini',
+});
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   try {
@@ -289,11 +365,10 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { dataDir: DATA_DIR, files: await readProject(), photos: await readPhotos() });
     }
     if (req.method === 'GET' && url.pathname.startsWith('/photos/')) {
-      const file = path.join(PHOTOS_DIR, decodeURIComponent(url.pathname.slice('/photos/'.length)));
-      const type = IMAGE_TYPES[path.extname(file).toLowerCase()];
-      if (!type || !file.startsWith(PHOTOS_DIR + path.sep)) return send(res, 404, 'Not found');
-      try { return send(res, 200, await fsp.readFile(file), type); }
-      catch (err) { if (err.code === 'ENOENT') return send(res, 404, 'Not found'); throw err; }
+      return sendImage(res, PHOTOS_DIR, url.pathname.slice('/photos/'.length));
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/renders/')) {
+      return sendImage(res, RENDERS_DIR, url.pathname.slice('/renders/'.length));
     }
     if ((req.method === 'PUT' || req.method === 'POST') && url.pathname === '/api/placements') {
       await writePlacements((await readBody(req)).toString('utf8'));
@@ -309,6 +384,23 @@ const server = http.createServer(async (req, res) => {
       if (!ZIP_NAME.test(name)) return send(res, 400, `bad export name "${name}"`);
       if (content !== 'data' && content !== 'site') return send(res, 400, 'content must be "data" or "site"');
       return sendJson(res, await exportZip(name, content, await readBody(req, MAX_EXPORT)));
+    }
+    if (req.method === 'GET' && url.pathname === '/api/render/config') {
+      return sendJson(res, renderConfig());
+    }
+    if (req.method === 'GET' && url.pathname === '/api/renders') {
+      return sendJson(res, { renders: await readRenders() });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/render') {
+      // Loaded on demand: the SDKs it pulls in are only needed once someone renders, and it's ESM.
+      const { renderView } = await import('./render.mjs');
+      const request = parseJson((await readBody(req, MAX_EXPORT)).toString('utf8'));
+      const meta = await renderView(request, {
+        dataDir: DATA_DIR, photosDir: PHOTOS_DIR, photoManifest: PHOTO_MANIFEST,
+        rendersSubdir: RENDERS_SUBDIR, models: RENDER_MODELS, promptModel: RENDER_PROMPT_MODEL,
+        env: process.env, writeOutput, broadcast, badRequest,
+      });
+      return sendJson(res, meta);
     }
     if (req.method === 'GET' && url.pathname === '/api/events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });

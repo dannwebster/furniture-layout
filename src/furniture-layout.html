@@ -157,7 +157,7 @@
   #empty .card {
     background: var(--panel); border: 2px dashed #cfc6b9; border-radius: 12px; padding: 28px 32px; max-width: 480px;
   }
-  #exportBar { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; }
+  #exportBar { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
   #exportBar[hidden] { display: none; }
   #exportBar button { box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
   #toast {
@@ -308,10 +308,10 @@
       </div>
     </div>
     <div id="exportBar" hidden>
-      <button id="btnExportData" title="Save the room, every product file and the positions as one layout-<time>.json in the output folder">Export data</button>
-      <button id="btnExportImage" title="Save the plan as it's drawn here as layout-<time>.png in the output folder">Export image</button>
-      <button id="btnExportZip" title="Save the Export data JSON plus the photos of the products in the room as layout-<time>.zip in the output folder">Export zip</button>
-      <button id="btnExportSite" title="Save the standalone page (as npm run build makes it) plus every product photo as layout-site-<time>.zip in the output folder">Export site</button>
+      <button id="btnExportData" title="Saves this layout as one JSON file (layout-<time>.json) in the output folder: the room, the full file of every product in the room with its count, colour and price, where each piece sits, and the total price.">Export data</button>
+      <button id="btnExportImage" title="Saves a picture of the floor plan as it's drawn here (layout-<time>.png, about 3000 px) in the output folder. The selection and measurements are left out.">Export image</button>
+      <button id="btnExportZip" title="Saves layout-<time>.zip in the output folder: the same JSON as Export data plus the product photo of each piece in the room.">Export zip</button>
+      <button id="btnExportSite" title="Saves layout-site-<time>.zip in the output folder: a self-contained copy of this page with the current layout, plus the product photos. Unzip it anywhere and open index.html; no server needed.">Export site</button>
     </div>
   </section>
 
@@ -1593,6 +1593,8 @@ function initStandalone() {
   $('#btnReset').hidden = false;
   $('#btnExportZip').hidden = true;
   $('#btnExportSite').hidden = true;
+  // No output folder here: the buttons download instead.
+  for (const id of ['#btnExportData', '#btnExportImage']) $(id).title = $(id).title.replace(/^Saves/, 'Downloads').replace(' in the output folder', '');
   $('#btnDownload').addEventListener('click', downloadPlacements);
   $('#btnReset').addEventListener('click', resetToBuilt);
   loadEmbedded();
@@ -1866,7 +1868,9 @@ function sceneMessage() {
     colors: state.colors,
     room: r && { width: r.width, length: r.length, ceiling: r.ceiling, colors: r.colors, openings: r.openings },
     items: state.items.map(it => ({
-      id: it.id, name: it.name, label: it.label, type: it.type, isRug: it.isRug,
+      // file is how the 3D view's renders find a piece's product file and its photos; id drops the
+      // furniture/ or rugs/ folder, so it can't stand in for it.
+      id: it.id, file: it.file, name: it.name, label: it.label, type: it.type, isRug: it.isRug,
       width: it.width, depth: it.depth, height: it.height, x: it.x, y: it.y, rot: it.rot, doc: it.doc,
     })),
   };

@@ -12,6 +12,9 @@ desktop.ini
 node_modules/
 npm-debug.log*
 
+# API keys for rendering the 3D view (GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY)
+.env
+
 # A data project checked out here (the real one lives outside this repo)
 /data/
 /output/

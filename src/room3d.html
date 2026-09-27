@@ -13,7 +13,12 @@
     position: fixed; top: 12px; left: 12px; max-width: 320px; padding: 10px 12px;
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(4px);
   }
-  #hud h1 { font-size: 14px; margin: 0 0 2px; }
+  #hud h1 { font-size: 14px; margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
+  #hudToggle {
+    margin-left: auto; font: 11px/1 system-ui, sans-serif; padding: 3px 6px; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 5px; background: #faf8f5; color: var(--muted);
+  }
+  #hudToggle:hover { color: var(--ink); }
   #hud .muted { color: var(--muted); }
   #hud .keys { margin-top: 6px; line-height: 1.9; color: var(--muted); }
   #hud .warn { margin-top: 6px; color: var(--danger); }
@@ -37,6 +42,42 @@
   }
   #waiting[hidden] { display: none; }
   #waiting .card { background: #fff; border: 2px dashed #cfc6b9; border-radius: 12px; padding: 24px 28px; max-width: 440px; }
+  /* The rectangle a render will cover: the image's aspect, letterboxed in the window. */
+  #frameGuide { position: fixed; border: 1px dashed rgba(42, 38, 34, 0.45); pointer-events: none; }
+  #frameGuide[hidden], #renderOverlay[hidden], #renderPanel[hidden] { display: none; }
+  #renderOverlay { position: fixed; pointer-events: none; }
+  #renderOverlay img { display: block; width: 100%; height: 100%; }
+  #renderPanel {
+    position: fixed; top: 12px; right: 12px; width: 268px; max-height: calc(100vh - 24px); overflow: auto;
+    padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    backdrop-filter: blur(4px);
+  }
+  #renderPanel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  #renderPanel label { display: block; margin-bottom: 6px; color: var(--muted); }
+  #renderPanel label > span { display: block; }
+  #renderPanel select, #renderPanel textarea, #renderPanel input[type=range] {
+    width: 100%; box-sizing: border-box; font: inherit; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; padding: 3px 4px;
+  }
+  #renderPanel textarea { resize: vertical; min-height: 38px; }
+  #renderPanel .check { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: var(--ink); }
+  #renderPanel .check input { margin: 0; }
+  #renderPanel button {
+    width: 100%; font: inherit; padding: 5px 10px; margin-top: 6px; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 6px; background: #f2efe9; color: var(--ink);
+  }
+  #renderPanel button.primary { background: #dfe7d6; }
+  #renderPanel button:disabled { opacity: .5; cursor: default; }
+  #renderPanel .status { margin-top: 8px; color: var(--muted); }
+  #renderPanel .status.bad { color: var(--danger); }
+  #renderPanel .findings { margin: 6px 0 0; padding-left: 16px; color: var(--danger); }
+  #renderPanel .shots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  #renderPanel .shots img {
+    width: 56px; height: 38px; object-fit: cover; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 4px;
+  }
+  #renderPanel .shots img.on { border-color: #7f8f6b; box-shadow: 0 0 0 2px #dfe7d6; }
+  #renderPanel .fade { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); }
 </style>
 <script type="importmap">
 { "imports": {
@@ -47,15 +88,35 @@
 </head>
 <body>
 <div id="hud">
-  <h1>3D view</h1>
+  <h1>3D view <button id="hudToggle" type="button" aria-expanded="true" title="Hide the controls (H)">Hide controls ▴</button></h1>
   <div class="muted" id="status">Waiting for the layout…</div>
   <div class="keys">
     Click the view to look around · <kbd>Esc</kbd> releases the mouse<br>
-    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> faster<br>
+    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · wheel forward/back · <kbd>Shift</kbd> faster<br>
     <kbd>E</kbd>/<kbd>Space</kbd> up · <kbd>Q</kbd> down<br>
-    <kbd>R</kbd> back to the doorway · <kbd>C</kbd> ceiling on/off · <kbd>H</kbd> hide help
+    <kbd>R</kbd> back to the doorway · <kbd>C</kbd> ceiling on/off · <kbd>H</kbd> hide controls<br>
+    <kbd>P</kbd> render this view · <kbd>V</kbd> show the render · <kbd>B</kbd> hold to compare
   </div>
   <div class="warn" id="unmapped" hidden></div>
+</div>
+<div id="frameGuide" hidden></div>
+<div id="renderOverlay" hidden><img id="renderImage" alt="The latest render of this view"></div>
+<div id="renderPanel" hidden>
+  <h2>Render this view</h2>
+  <label><span>Image model</span><select id="rProvider"></select></label>
+  <label><span>Size</span><select id="rSize"></select></label>
+  <label><span>Light</span><select id="rLight"></select></label>
+  <label><span>Style</span><select id="rStyle"></select></label>
+  <label><span>Notes</span><textarea id="rNotes" rows="2" placeholder="anything else about the shot"></textarea></label>
+  <div class="check"><input type="checkbox" id="rClaude"><label for="rClaude">Claude writes the prompt</label></div>
+  <div class="check"><input type="checkbox" id="rAudit"><label for="rAudit">Claude checks the result</label></div>
+  <button id="rGo" class="primary">Render <kbd>P</kbd></button>
+  <div class="status" id="rStatus"></div>
+  <ul class="findings" id="rFindings" hidden></ul>
+  <div class="fade" id="rFade" hidden>
+    <span>Fade</span><input type="range" id="rOpacity" min="0" max="100" value="100">
+  </div>
+  <div class="shots" id="rShots"></div>
 </div>
 <div id="crosshair" hidden></div>
 <div id="prompt">Click to look around</div>
@@ -346,8 +407,12 @@ function colorsFor(it, kind, unmapped) {
     up.fabric && up.color ? `${up.fabric} ${up.color}` : null, up.color, m.color,
   ], kind === 'rug' ? 'rug' : kind === 'chair' ? 'upholstery' : 'wood', unmapped);
   const has = k => isObj(m[k]);
+  // Bedding is dressing, not part of the product, so it sits beside materials: "bedding": { "sheets", "pillows" }.
+  const bedding = isObj(it.doc && it.doc.bedding) ? it.doc.bedding : {};
   return {
     body,
+    sheets: kind === 'bed' ? resolve([bedding.sheets], 'mattress', unmapped) : null,
+    pillows: kind === 'bed' ? resolve([bedding.pillows], 'pillow', unmapped) : null,
     base: has('base') ? resolve([g('base').color, g('base').wood, g('base').material], 'wood', unmapped) : body,
     top: has('top') ? resolve([g('top').color, g('top').material], 'wood', unmapped) : null,
     hardware: has('hardware') ? resolve([g('hardware').material, g('hardware').finish], 'metal', unmapped) : palette.defaults.metal,
@@ -356,6 +421,7 @@ function colorsFor(it, kind, unmapped) {
 
 function buildPiece(it, unmapped) {
   const grp = new THREE.Group();
+  grp.userData.id = it.id; // the mask pass colours pieces one group at a time
   grp.position.set(it.x, 0, it.y);
   grp.rotation.y = -it.rot * Math.PI / 180;
   const doc = it.doc || {};
@@ -384,13 +450,13 @@ function buildPiece(it, unmapped) {
     box(grp, body, x0, legBottom, zF, x1, deck, zB - t);
     box(grp, body, x0, 0, zB - t, x1, headH, zB);
     if (footH > 0) box(grp, body, x0, 0, zF, x1, footH, zF + t);
-    // Mattress against the headboard, then pillows.
+    // Mattress (made up in its sheets) against the headboard, then pillows.
     const ms = isObj(geo.mattress_space) ? geo.mattress_space : isObj(geo.interior_frame) ? geo.interior_frame : {};
     const mw = Math.min(w - 1, numOr(ms.width, NaN) * f || w - 3);
     const md = Math.min(d - t - (footH > 0 ? t : 0), numOr(ms.depth, NaN) * f || d - 4);
     const mTop = deck + 10;
-    box(grp, mat(palette.defaults.mattress, { rough: 1 }), -mw / 2, deck, zB - t - md, mw / 2, mTop, zB - t);
-    const pw = mw / 2 - 4, pillow = mat(palette.defaults.pillow, { rough: 1 });
+    box(grp, mat(c.sheets, { rough: 1 }), -mw / 2, deck, zB - t - md, mw / 2, mTop, zB - t);
+    const pw = mw / 2 - 4, pillow = mat(c.pillows, { rough: 1 });
     for (const px of [-mw / 2 + 2, 2]) box(grp, pillow, px, mTop, zB - t - 16, px + pw, mTop + 5, zB - t - 3);
   } else if (kind === 'case') {
     const legH = G('floor_to_bottom_clearance', G('floor_clearance', 0));
@@ -488,11 +554,13 @@ function buildFurniture(items) {
 
 // ==== Scene updates from the layout page ====
 let gotScene = false;
+let scene3d = null;   // the last scene applied, which a render is taken from
 // The layout tab that opened this window; scenes from any other open layout tab are ignored.
 const SOURCE = new URLSearchParams(location.search).get('source');
 function applyScene(msg) {
   if (!msg.room) return;
   gotScene = true;
+  scene3d = msg;
   $('#waiting').hidden = true;
   const key = JSON.stringify([msg.room, msg.colors]);
   if (key !== roomKey) {
@@ -500,10 +568,39 @@ function applyScene(msg) {
     roomKey = key;
     setPalette(msg.colors);
     buildRoom(msg.room);
-    if (first) goHome();
+    if (first && !restorePose()) goHome();
   }
   buildFurniture(msg.items || []);
 }
+
+// ==== Where you were standing ====
+// Renders are tied to a point of view, and editing either page makes the server reload this one, so
+// the pose outlives a reload. Per tab, like the layout page's tab id.
+const LS_POSE = 'furnitureLayout3d.pose';
+function savePose() {
+  try {
+    sessionStorage.setItem(LS_POSE, JSON.stringify({
+      position: camera.position.toArray(), quaternion: camera.quaternion.toArray(),
+    }));
+  } catch { /* private window, or storage full */ }
+}
+function restorePose() {
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(LS_POSE) || 'null'); } catch { /* ignore */ }
+  if (!saved || !Array.isArray(saved.position) || saved.position.length !== 3) return false;
+  camera.position.fromArray(saved.position);
+  if (Array.isArray(saved.quaternion) && saved.quaternion.length === 4) camera.quaternion.fromArray(saved.quaternion);
+  return true;
+}
+function setPose(pose) {
+  if (!pose || !Array.isArray(pose.position)) return;
+  camera.position.fromArray(pose.position);
+  if (Array.isArray(pose.quaternion)) camera.quaternion.fromArray(pose.quaternion);
+  savePose();
+}
+controls.addEventListener('unlock', savePose);
+addEventListener('pagehide', savePose);
+setInterval(savePose, 2000);
 
 // A standalone build (server.js --build) opens this page from a blob: URL, possibly under file://,
 // where BroadcastChannel can't be relied on; there the opener posts scenes to this window directly.
@@ -530,25 +627,468 @@ if (STANDALONE) {
 }
 
 // Reload when this page's file changes, like the layout page does.
+let events = null;
 if (!STANDALONE) {
   try {
-    const es = new EventSource('/api/events');
-    es.addEventListener('page', () => location.reload());
+    events = new EventSource('/api/events');
+    events.addEventListener('page', () => location.reload());
   } catch { /* opened without the server */ }
 }
+
+// ==== Rendering this point of view as a photo ====
+// The server does the talking to the image model (src/render.mjs); this side supplies the three things
+// only the 3D view knows: a clean render of what the camera sees, what each piece looks like from here,
+// and the camera itself. A standalone build has no server, so none of this is set up there.
+const CAPTURE_SIZES = [
+  { label: '1536 × 1024 · landscape', w: 1536, h: 1024 },
+  { label: '1024 × 1024 · square', w: 1024, h: 1024 },
+  { label: '1024 × 1536 · portrait', w: 1024, h: 1536 },
+];
+const LIGHTING = [
+  'Mid-afternoon daylight through the window, warm interior ambient, soft directional shadows.',
+  'Soft overcast daylight, even and shadowless, cool white balance.',
+  'Early morning sun low through the window, long warm shadows across the floor.',
+  'Evening: lamps on, deep blue dusk outside the window, warm pools of light.',
+];
+const STYLES = [
+  'Straight architectural interior photograph, roughly 24 mm equivalent, deep focus, level horizon, no vignette, no lens distortion beyond the stated field of view, natural colour, no text or watermark.',
+  'Editorial interior photograph, 35 mm, shallower depth of field, styled but uncluttered, natural colour.',
+  'Estate-agent listing photo: bright, evenly lit, everything sharp, slightly cool white balance.',
+];
+const LS_RENDER = 'furnitureLayout3d.prefs';
+const MASK_SAMPLE = 320;              // the mask pass only gets measured, so keep it small
+const VISIBLE_AT = 0.002;             // below this share of the frame a piece isn't worth describing
+
+const captureSize = () => CAPTURE_SIZES[Math.max(0, Math.min(CAPTURE_SIZES.length - 1, Number($('#rSize').value) || 0))];
+
+// Vertical field of view is what the camera keeps when its aspect changes, so a capture always covers
+// the window's full height and only differs sideways. That makes the guide (and the overlay) exact.
+function frameRect() {
+  const size = captureSize();
+  const width = innerHeight * size.w / size.h;
+  return { left: (innerWidth - width) / 2, top: 0, width, height: innerHeight };
+}
+function layoutFrame() {
+  const r = frameRect();
+  for (const el of [$('#frameGuide'), $('#renderOverlay')]) {
+    el.style.left = `${r.left}px`; el.style.top = `${r.top}px`;
+    el.style.width = `${r.width}px`; el.style.height = `${r.height}px`;
+  }
+}
+
+// One synchronous draw-and-read: the renderer has no preserveDrawingBuffer, so the canvas is only
+// readable in the same task it was drawn in. The animation loop redraws at the old size next frame.
+function capture(w, h, draw) {
+  const size = renderer.getSize(new THREE.Vector2()), ratio = renderer.getPixelRatio(), aspect = camera.aspect;
+  renderer.setPixelRatio(1);
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  try {
+    return draw();
+  } finally {
+    renderer.setPixelRatio(ratio);
+    renderer.setSize(size.x, size.y, false);
+    camera.aspect = aspect;
+    camera.updateProjectionMatrix();
+  }
+}
+
+const captureImage = (w, h) => capture(w, h, () => {
+  renderer.render(scene, camera);
+  return renderer.domElement.toDataURL('image/png');
+});
+
+// Flat unlit colour per piece, black everywhere else: rendered small and read back, it says exactly
+// which pieces the camera can see and how much of the frame each one holds — occlusion included,
+// which projecting a bounding box could never tell us.
+function maskColors(items) {
+  const colors = new Map();
+  items.forEach((it, i) => {
+    const c = new THREE.Color().setHSL((i * 0.618033988749895) % 1, 0.95, 0.5);
+    colors.set(it.id, c);
+  });
+  return colors;
+}
+function withMask(colors, fn) {
+  const saved = [], background = scene.background;
+  const swap = (obj, material) => obj.traverse(o => {
+    if (o.isMesh) { saved.push([o, o.material]); o.material = material; }
+  });
+  const black = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  if (roomGroup) swap(roomGroup, black);
+  const mats = [];
+  for (const grp of (furnitureGroup ? furnitureGroup.children : [])) {
+    const color = colors.get(grp.userData.id);
+    if (!color) { swap(grp, black); continue; }
+    const m = new THREE.MeshBasicMaterial({ color });
+    mats.push(m);
+    swap(grp, m);
+  }
+  scene.background = new THREE.Color(0x000000);
+  try {
+    return fn();
+  } finally {
+    for (const [obj, material] of saved) obj.material = material;
+    scene.background = background;
+    black.dispose();
+    for (const m of mats) m.dispose();
+  }
+}
+
+// Pixels per piece, plus the box each one covers in the frame (0..1, y from the top).
+function measureMask(colors, aspectW, aspectH) {
+  const h = Math.max(120, Math.round(MASK_SAMPLE * aspectH / aspectW)), w = MASK_SAMPLE;
+  const target = new THREE.WebGLRenderTarget(w, h);
+  const buffer = new Uint8Array(w * h * 4);
+  capture(w, h, () => withMask(colors, () => {
+    renderer.setRenderTarget(target);
+    renderer.render(scene, camera);
+    renderer.readRenderTargetPixels(target, 0, 0, w, h, buffer);
+    renderer.setRenderTarget(null);
+  }));
+  target.dispose();
+  // Colour management: a render target reads back in the working (linear) space, the canvas in sRGB,
+  // and which one applies has changed between three.js versions. So allow either encoding of each
+  // piece's colour and take whichever is closer — that can't silently mis-assign or drop pixels.
+  const toSrgb = v => (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055) * 255;
+  const keys = [];
+  for (const [id, c] of colors) {
+    keys.push({ id, r: c.r * 255, g: c.g * 255, b: c.b * 255 });
+    keys.push({ id, r: toSrgb(c.r), g: toSrgb(c.g), b: toSrgb(c.b) });
+  }
+  const found = new Map();
+  for (let i = 0; i < w * h; i++) {
+    const r = buffer[i * 4], g = buffer[i * 4 + 1], b = buffer[i * 4 + 2];
+    if (r + g + b < 24) continue; // background and the room shell
+    let best = null, bestDist = Infinity;
+    for (const k of keys) {
+      const d = (k.r - r) ** 2 + (k.g - g) ** 2 + (k.b - b) ** 2;
+      if (d < bestDist) { bestDist = d; best = k; }
+    }
+    if (!best || bestDist > 70 * 70) continue;
+    const x = (i % w) / w, y = 1 - Math.floor(i / w) / h; // row 0 of the readback is the frame's bottom
+    const hit = found.get(best.id) || { pixels: 0, x0: 1, y0: 1, x1: 0, y1: 0 };
+    hit.pixels++;
+    hit.x0 = Math.min(hit.x0, x); hit.x1 = Math.max(hit.x1, x);
+    hit.y0 = Math.min(hit.y0, y); hit.y1 = Math.max(hit.y1, y);
+    found.set(best.id, hit);
+  }
+  const total = w * h;
+  const out = new Map();
+  for (const [id, hit] of found) {
+    out.set(id, {
+      coverage: hit.pixels / total,
+      screenBox: { x0: +hit.x0.toFixed(3), y0: +hit.y0.toFixed(3), x1: +hit.x1.toFixed(3), y1: +hit.y1.toFixed(3) },
+    });
+  }
+  return out;
+}
+
+// How the camera stands in the room, in the terms the room file uses (y north from the south wall).
+function cameraFacts(room, size) {
+  const dir = camera.getWorldDirection(new THREE.Vector3());
+  const yaw = (Math.atan2(dir.x, -dir.z) * 180 / Math.PI + 360) % 360; // 0 = north, 90 = east
+  const pitch = Math.asin(Math.max(-1, Math.min(1, dir.y))) * 180 / Math.PI;
+  const vfov = camera.fov * Math.PI / 180;
+  return {
+    fromWest: +camera.position.x.toFixed(1),
+    fromSouth: +(room.length - camera.position.z).toFixed(1),
+    eye: +camera.position.y.toFixed(1),
+    yawDeg: +yaw.toFixed(1),
+    pitchDeg: +pitch.toFixed(1),
+    hfovDeg: +(2 * Math.atan(Math.tan(vfov / 2) * size.w / size.h) * 180 / Math.PI).toFixed(1),
+    vfovDeg: camera.fov,
+  };
+}
+
+// Which side of a piece faces the camera, said the way a photographer would. A group is rotated by
+// -rot about y, so its front (local -z) points along (sin rot, -cos rot) and its right along (cos rot, sin rot).
+function facingWords(it) {
+  const toCamera = new THREE.Vector3(camera.position.x - it.x, 0, camera.position.z - it.y).normalize();
+  const rot = it.rot * Math.PI / 180;
+  const front = new THREE.Vector3(Math.sin(rot), 0, -Math.cos(rot)).dot(toCamera);
+  const side = new THREE.Vector3(Math.cos(rot), 0, Math.sin(rot)).dot(toCamera);
+  const hand = side > 0 ? 'right-hand' : 'left-hand';
+  const face = front > 0.75 ? 'its front is square to the camera'
+    : front < -0.75 ? 'the camera sees its back'
+    : Math.abs(front) < 0.15 ? `the camera sees its ${hand} side` // square on: don't let rounding pick a face
+    : front > 0 ? `the camera sees its front and its ${hand} side`
+    : `the camera sees its back and its ${hand} side`;
+  const compass = ['north', 'east', 'south', 'west'][Math.round(((it.rot % 360) + 360) % 360 / 90) % 4];
+  return `Its front faces ${compass}, so ${face}`;
+}
+
+// Everything the server needs about one shot.
+function renderRequest() {
+  const room = scene3d.room, size = captureSize();
+  const items = scene3d.items || [];
+  const colors = maskColors(items);
+  const seen = measureMask(colors, size.w, size.h);
+  // Saved beside the render: the flat-colour pass is how the numbers below can be checked by eye.
+  const mask = capture(size.w, size.h, () => withMask(colors, () => {
+    renderer.render(scene, camera);
+    return renderer.domElement.toDataURL('image/png');
+  }));
+  return {
+    pov: {
+      position: camera.position.toArray().map(n => +n.toFixed(2)),
+      quaternion: camera.quaternion.toArray().map(n => +n.toFixed(5)),
+      fov: camera.fov, width: size.w, height: size.h,
+      room: cameraFacts(room, size),
+    },
+    images: { beauty: captureImage(size.w, size.h), mask },
+    room, colors: scene3d.colors,
+    items: items.map(it => {
+      const hit = seen.get(it.id);
+      return {
+        id: it.id, file: it.file, name: it.name, label: it.label, type: it.type, isRug: !!it.isRug,
+        width: it.width, depth: it.depth, height: it.height, rot: it.rot,
+        distanceIn: +Math.hypot(camera.position.x - it.x, camera.position.z - it.y).toFixed(1),
+        bearingDeg: bearingOf(it),
+        facing: facingWords(it),
+        visible: !!hit && hit.coverage >= VISIBLE_AT,
+        coverage: hit ? +hit.coverage.toFixed(4) : 0,
+        screenBox: hit ? hit.screenBox : null,
+      };
+    }),
+    options: {
+      provider: $('#rProvider').value,
+      lighting: $('#rLight').value,
+      style: $('#rStyle').value,
+      notes: $('#rNotes').value.trim(),
+      claudePrompt: $('#rClaude').checked,
+      audit: $('#rAudit').checked,
+    },
+  };
+}
+
+// Signed angle from the view axis to a piece: negative is left, positive is right.
+function bearingOf(it) {
+  const dir = camera.getWorldDirection(new THREE.Vector3());
+  const to = new THREE.Vector3(it.x - camera.position.x, 0, it.y - camera.position.z);
+  const ahead = Math.atan2(dir.x, -dir.z), at = Math.atan2(to.x, -to.z);
+  let deg = (at - ahead) * 180 / Math.PI;
+  while (deg > 180) deg -= 360;
+  while (deg < -180) deg += 360;
+  return +deg.toFixed(1);
+}
+
+// ==== The render panel ====
+const STAGE_TEXT = {
+  references: 'finding product photos…', prompt: 'writing the brief…',
+  claude: 'Claude is sharpening the brief…', generating: 'the image model is painting…',
+  audit: 'Claude is checking the result…', saved: 'saved',
+};
+const renderUI = { busy: false, shots: [], shown: null, config: null };
+
+function renderStatus(text, bad = false) {
+  const el = $('#rStatus');
+  el.textContent = text;
+  el.classList.toggle('bad', !!bad);
+}
+
+function fillSelect(sel, values, labels) {
+  sel.replaceChildren(...values.map((v, i) => {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = labels[i];
+    return opt;
+  }));
+}
+
+function savePrefs() {
+  try {
+    localStorage.setItem(LS_RENDER, JSON.stringify({
+      provider: $('#rProvider').value, size: $('#rSize').value,
+      light: $('#rLight').selectedIndex, style: $('#rStyle').selectedIndex,
+      notes: $('#rNotes').value, claude: $('#rClaude').checked, audit: $('#rAudit').checked,
+      opacity: $('#rOpacity').value,
+    }));
+  } catch { /* storage unavailable */ }
+}
+
+const hasImage = shot => !!(shot && shot.urls && shot.urls.renders && shot.urls.renders.length);
+
+function showRender(shot) {
+  if (!hasImage(shot)) shot = null; // a render that failed has a folder and a brief, but no picture
+  renderUI.shown = shot;
+  const overlay = $('#renderOverlay'), img = $('#renderImage');
+  $('#rFade').hidden = !shot;
+  if (!shot) { overlay.hidden = true; img.removeAttribute('src'); $('#rFindings').hidden = true; return; }
+  img.src = `/${shot.urls.renders[0]}`;
+  img.style.opacity = String(Number($('#rOpacity').value) / 100);
+  layoutFrame();
+  overlay.hidden = false;
+  for (const el of $('#rShots').children) el.classList.toggle('on', el.dataset.name === shot.name);
+  const findings = $('#rFindings'), audit = shot.audit || [];
+  findings.replaceChildren(...audit.map(text => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    return li;
+  }));
+  findings.hidden = !audit.length;
+}
+
+function drawShots() {
+  const strip = $('#rShots');
+  strip.innerHTML = '';
+  for (const shot of renderUI.shots.slice(0, 12)) {
+    if (!hasImage(shot)) continue;
+    const img = document.createElement('img');
+    img.src = `/${shot.urls.renders[0]}`;
+    img.dataset.name = shot.name;
+    img.title = `${new Date(shot.created).toLocaleString()} · ${shot.provider}\nClick to show, double-click to stand here again`;
+    img.addEventListener('click', () => showRender(shot === renderUI.shown ? null : shot));
+    img.addEventListener('dblclick', () => { setPose(shot.pov); showRender(shot); });
+    strip.append(img);
+  }
+}
+
+async function loadShots() {
+  try {
+    const res = await fetch('/api/renders', { cache: 'no-store' });
+    if (!res.ok) return;
+    renderUI.shots = (await res.json()).renders || [];
+    drawShots();
+  } catch { /* no server */ }
+}
+
+async function doRender() {
+  if (renderUI.busy) return;
+  if (!scene3d || !scene3d.room) { renderStatus('waiting for the layout page', true); return; }
+  renderUI.busy = true;
+  $('#rGo').disabled = true;
+  renderStatus('capturing the view…');
+  controls.unlock();
+  try {
+    const request = renderRequest();
+    const res = await fetch('/api/render', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || `the server said ${res.status}`);
+    const meta = JSON.parse(text);
+    renderUI.shots = [meta, ...renderUI.shots.filter(s => s.name !== meta.name)];
+    drawShots();
+    showRender(meta);
+    const spent = Math.round((meta.times.total || 0) / 1000);
+    renderStatus(`done in ${spent}s · ${meta.references.length} photo(s)` +
+      (meta.missingPhotos.length ? ` · no photo for ${meta.missingPhotos.length}` : ''));
+  } catch (err) {
+    renderStatus(err.message, true);
+  } finally {
+    renderUI.busy = false;
+    $('#rGo').disabled = false;
+  }
+}
+
+if (!STANDALONE) {
+  fillSelect($('#rSize'), CAPTURE_SIZES.map((_, i) => i), CAPTURE_SIZES.map(s => s.label));
+  fillSelect($('#rLight'), LIGHTING, LIGHTING.map(s => s.split(',')[0]));
+  fillSelect($('#rStyle'), STYLES, STYLES.map(s => s.split(',')[0]));
+  let prefs = null;
+  try { prefs = JSON.parse(localStorage.getItem(LS_RENDER) || 'null'); } catch { /* ignore */ }
+  if (prefs) {
+    if (prefs.size != null) $('#rSize').value = prefs.size;
+    if (prefs.light != null) $('#rLight').selectedIndex = prefs.light;
+    if (prefs.style != null) $('#rStyle').selectedIndex = prefs.style;
+    if (prefs.notes) $('#rNotes').value = prefs.notes;
+    $('#rClaude').checked = !!prefs.claude;
+    $('#rAudit').checked = !!prefs.audit;
+    if (prefs.opacity != null) $('#rOpacity').value = prefs.opacity;
+  }
+  for (const id of ['#rSize', '#rLight', '#rStyle', '#rNotes', '#rClaude', '#rAudit', '#rProvider']) {
+    $(id).addEventListener('change', () => { savePrefs(); if (id === '#rSize') layoutFrame(); });
+  }
+  $('#rOpacity').addEventListener('input', () => {
+    $('#renderImage').style.opacity = String(Number($('#rOpacity').value) / 100);
+    savePrefs();
+  });
+  $('#rGo').addEventListener('click', doRender);
+  if (events) {
+    events.addEventListener('render', e => {
+      if (!renderUI.busy) return;
+      let data = {};
+      try { data = JSON.parse(e.data); } catch { /* ignore */ }
+      if (data.error) renderStatus(`${data.stage}: ${data.error}`, true);
+      else if (STAGE_TEXT[data.stage]) renderStatus(STAGE_TEXT[data.stage]);
+    });
+  }
+  // Which providers have keys decides what the panel offers.
+  fetch('/api/render/config', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(config => {
+    if (!config) return;
+    renderUI.config = config;
+    const ready = Object.keys(config.providers).filter(p => config.providers[p]);
+    fillSelect($('#rProvider'), ready, ready.map(p => `${p} · ${config.models[p]}`));
+    if (prefs && ready.includes(prefs.provider)) $('#rProvider').value = prefs.provider;
+    else if (ready.includes(config.defaultProvider)) $('#rProvider').value = config.defaultProvider;
+    $('#renderPanel').hidden = false;
+    $('#frameGuide').hidden = false;
+    layoutFrame();
+    if (!ready.length) {
+      $('#rGo').disabled = true;
+      renderStatus('No image model key: add GEMINI_API_KEY or OPENAI_API_KEY to a .env file in the data project.', true);
+    } else if (!config.claude) {
+      $('#rClaude').disabled = $('#rAudit').disabled = true;
+      $('#rClaude').checked = $('#rAudit').checked = false;
+      renderStatus('Claude’s passes need ANTHROPIC_API_KEY in that .env too.');
+    }
+    loadShots();
+  }).catch(() => { /* opened without the server */ });
+  addEventListener('resize', layoutFrame);
+}
+
+// ==== Controls legend ====
+// Collapsed with its button or H; remembered across popups.
+const LS_HUD = 'furnitureLayout3d.hudCollapsed';
+function setHudCollapsed(collapsed) {
+  $('#hud').classList.toggle('hidden', collapsed);
+  const btn = $('#hudToggle');
+  btn.textContent = collapsed ? 'Show controls ▾' : 'Hide controls ▴';
+  btn.title = `${collapsed ? 'Show' : 'Hide'} the controls (H)`;
+  btn.setAttribute('aria-expanded', String(!collapsed));
+  try { localStorage.setItem(LS_HUD, collapsed ? '1' : '0'); } catch { /* storage unavailable */ }
+}
+$('#hudToggle').addEventListener('click', e => {
+  setHudCollapsed(!$('#hud').classList.contains('hidden'));
+  e.currentTarget.blur(); // so Space (up) doesn't press it again
+});
+try { if (localStorage.getItem(LS_HUD) === '1') setHudCollapsed(true); } catch { /* storage unavailable */ }
 
 // ==== Movement ====
 let bounds = null;
 const keys = new Set();
 addEventListener('keydown', e => {
+  if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return; // typing in the render panel
   keys.add(e.code);
   if (e.code === 'KeyR') goHome();
   if (e.code === 'KeyC' && ceilingMesh) { showCeiling = !showCeiling; ceilingMesh.visible = showCeiling; }
-  if (e.code === 'KeyH') $('#hud').classList.toggle('hidden');
+  if (e.code === 'KeyH') setHudCollapsed(!$('#hud').classList.contains('hidden'));
+  if (e.code === 'KeyP' && !STANDALONE) doRender();
+  if (e.code === 'KeyV') showRender(renderUI.shown ? null : renderUI.shots.find(hasImage));
+  // Hold B to see the render alone, for a straight before-and-after against the geometry.
+  if (e.code === 'KeyB' && renderUI.shown) $('#renderImage').style.opacity = '1';
   if (e.code === 'Space') e.preventDefault();
 });
-addEventListener('keyup', e => keys.delete(e.code));
+addEventListener('keyup', e => {
+  keys.delete(e.code);
+  if (e.code === 'KeyB' && renderUI.shown) $('#renderImage').style.opacity = String(Number($('#rOpacity').value) / 100);
+});
 addEventListener('blur', () => keys.clear());
+
+// Mouse wheel walks like W/S: scrolling up is forward, down is back. Each notch queues a step that the
+// loop glides out over a few frames. Wheeling over the render panel still scrolls it, and Ctrl+wheel
+// is left to the browser's zoom.
+const WHEEL_STEP = 6;      // inches per notch (about 100px of wheel delta)
+let wheelDist = 0;
+addEventListener('wheel', e => {
+  if (e.ctrlKey || e.target?.closest?.('#renderPanel')) return;
+  e.preventDefault();
+  const px = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? innerHeight : 1);
+  const boost = e.shiftKey ? 2.5 : 1;
+  wheelDist = Math.max(-WALK, Math.min(WALK, wheelDist - px / 100 * WHEEL_STEP * boost));
+}, { passive: false });
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
@@ -563,6 +1103,12 @@ renderer.setAnimationLoop(() => {
     controls.moveRight(side / n * speed);
   }
   if (up) camera.position.y += up * speed * 0.6;
+  if (wheelDist) {
+    // Cover most of what's left each frame (about 90% in 0.15s), then snap the last sliver.
+    const step = Math.abs(wheelDist) < 0.05 ? wheelDist : wheelDist * (1 - Math.exp(-15 * dt));
+    controls.moveForward(step);
+    wheelDist -= step;
+  }
   if (bounds) {
     const p = camera.position;
     p.x = Math.min(bounds.maxX, Math.max(bounds.minX, p.x));
