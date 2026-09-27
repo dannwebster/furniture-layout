@@ -42,13 +42,15 @@ function ft(inches) {
 const inch = n => `${round(n, 1)} in`;
 const compass = yawDeg => COMPASS[Math.round((((yawDeg % 360) + 360) % 360) / 22.5) % 16];
 
-// Where in the frame, from the mask pass's screen box (0..1, y down).
-function framePosition(box) {
+// Where in the frame, from the mask pass's screen box (0..1, y down), as numbers: words like "lower
+// left" let the model slide a piece around, and a piece the frame cuts off got drawn whole.
+const pct = n => `${Math.round(n * 100)}%`;
+const span = box => `${pct(box.x0)}–${pct(box.x1)} of the width from the left`;
+function frameBox(box) {
   if (!box) return null;
-  const x = (box.x0 + box.x1) / 2, y = (box.y0 + box.y1) / 2;
-  const across = x < 0.34 ? 'left' : x > 0.66 ? 'right' : 'centre';
-  const down = y < 0.34 ? 'upper' : y > 0.66 ? 'lower' : 'middle';
-  return across === 'centre' && down === 'middle' ? 'dead centre' : `${down} ${across}`;
+  const cut = [box.x0 <= 0.01 && 'left', box.x1 >= 0.99 && 'right', box.y0 <= 0.01 && 'top', box.y1 >= 0.99 && 'bottom'].filter(Boolean);
+  return `Spans ${pct(box.x0)}–${pct(box.x1)} of the width and ${pct(box.y0)}–${pct(box.y1)} of the height.` +
+    (cut.length ? ` Cut off by the ${cut.join(' and ')} edge${cut.length > 1 ? 's' : ''} of the frame — do not show the whole piece.` : '');
 }
 
 function bearingWords(deg) {
@@ -174,21 +176,72 @@ function roomLines(room, palette) {
   return lines;
 }
 
-function itemLines(items, refsByItem, startIndex) {
+// ---- Pieces, as the picture shows them ----
+// A product's reference photo serves all its pieces: keyed by piece, a second bookcase read "no photo"
+// and came out as a different object.
+const productOf = it => String(it.file || '').replace(/\.json$/i, '');
+const touches = (a, b, gap = 0.02) => !!(a && b) &&
+  a.x0 <= b.x1 + gap && b.x0 <= a.x1 + gap && a.y0 <= b.y1 + gap && b.y0 <= a.y1 + gap;
+const union = (a, b) => (!a ? b : !b ? a : {
+  x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1),
+});
+// Share of box a that lies inside box b.
+function insideShare(a, b) {
+  if (!a || !b) return 0;
+  const w = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), h = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+  const area = (a.x1 - a.x0) * (a.y1 - a.y0);
+  return w > 0 && h > 0 && area > 0 ? (w * h) / area : 0;
+}
+const SLIVER = 0.015; // below this share of the frame a piece is a glimpse, not an object to describe
+
+// Visible pieces (largest first) → what to describe. Pieces of one product whose boxes touch are one
+// entry (two bookcases side by side read as one unit, and listing them apart got one pulled out as a
+// separate piece); a glimpse inside a bigger piece's box is a note on that piece rather than a numbered
+// object of its own. Every visible piece is still counted.
+function groupPieces(visible) {
+  const groups = [];
+  for (const it of visible) {
+    const same = groups.find(g => g.product === productOf(it) && g.members.some(m => touches(m.screenBox, it.screenBox)));
+    if (same) {
+      same.members.push(it);
+      same.screenBox = union(same.screenBox, it.screenBox);
+      same.coverage += it.coverage || 0;
+    } else {
+      groups.push({ product: productOf(it), members: [it], screenBox: it.screenBox, coverage: it.coverage || 0, glimpses: [] });
+    }
+  }
+  const main = [];
+  for (const g of groups) {
+    const host = g.coverage < SLIVER && main.find(m => insideShare(g.screenBox, m.screenBox) >= 0.8);
+    if (host) host.glimpses.push(g);
+    else main.push(g);
+  }
+  return main;
+}
+
+// The product's name, not the piece label: "Nightstand 2" alone in a picture implies a number 1.
+const groupName = g => {
+  const name = g.members[0].name || g.members[0].label;
+  return g.members.length > 1 ? `${g.members.length} × ${name}` : name;
+};
+
+function itemLines(groups, refsByProduct) {
   const lines = [];
-  for (const [i, it] of items.entries()) {
+  for (const [i, g] of groups.entries()) {
+    const it = g.members[0], many = g.members.length > 1;
     const dims = it.isRug
       ? `${inch(it.width)} by ${inch(it.depth)}`
       : `${inch(it.width)} wide, ${inch(it.depth)} deep, ${inch(it.height)} tall`;
     const bits = [
-      `${i + startIndex}. ${it.label || it.name} — ${it.words || 'no material listed'}. ${dims}.`,
-      `Centre ${ft(it.distanceIn)} from the camera, ${bearingWords(it.bearingDeg)}.`,
+      `${i + 1}. ${groupName(g)} — ${it.words || 'no material listed'}. ${many ? 'Each ' : ''}${dims}.`,
+      many ? 'They stand next to each other and read as one wider unit in the picture.' : null,
+      `${many ? 'Nearest centre' : 'Centre'} ${ft(it.distanceIn)} from the camera, ${bearingWords(it.bearingDeg)}.`,
       it.facing ? `${it.facing}.` : null,
-      Number.isFinite(it.coverage)
-        ? `Fills about ${Math.max(1, Math.round(it.coverage * 100))}% of the frame, ${framePosition(it.screenBox) || 'in view'}.`
-        : null,
+      Number.isFinite(g.coverage) ? `Fills about ${Math.max(1, Math.round(g.coverage * 100))}% of the frame.` : null,
+      frameBox(g.screenBox),
+      ...g.glimpses.map(s => `Only a small part of the ${groupName(s)} shows here, mostly hidden by it.`),
     ];
-    const ref = refsByItem.get(it.id);
+    const ref = refsByProduct.get(g.product);
     if (ref) {
       bits.push(`Appearance reference: image ${ref.imageIndex}` +
         (ref.pageConfig ? ` (shown configured as: ${ref.pageConfig})` : '') + '.');
@@ -200,9 +253,16 @@ function itemLines(items, refsByItem, startIndex) {
   return lines;
 }
 
+// "Exactly 5 pieces of furniture are in the picture: …" — a closed list, so nothing else gets added.
+// Naming what is out of frame ("do not draw the rug") is what got it drawn, so that isn't named at all.
+function countLine(groups) {
+  const all = groups.flatMap(g => [g, ...g.glimpses]);
+  const n = all.reduce((sum, g) => sum + g.members.length, 0);
+  return `Exactly ${n} piece${n === 1 ? '' : 's'} of furniture ${n === 1 ? 'is' : 'are'} in the picture: ` +
+    all.map(groupName).join(', ') + '. There is nothing else: no other furniture, cabinets, sideboards, shelves or rugs.';
+}
+
 // ---- The camera and the frame, in words ----
-const pct = n => `${Math.round(n * 100)}%`;
-const span = box => `${pct(box.x0)}–${pct(box.x1)} of the width from the left`;
 
 // The lens as a photographer would name it (36 mm-wide full frame), and what the height and tilt do to
 // the picture. Image models default to an eye-level, level, ~24 mm view; this says how this one differs.
@@ -245,7 +305,9 @@ function frameLines(frame) {
   const openings = frame.openings || [];
   for (const o of openings.filter(o => o.screenBox)) {
     lines.push(`The ${o.type} on the ${o.wall} wall is in frame, ${span(o.screenBox)}, ` +
-      `${pct(o.screenBox.y0)}–${pct(o.screenBox.y1)} of the height from the top.`);
+      `${pct(o.screenBox.y0)}–${pct(o.screenBox.y1)} of the height from the top.` +
+      // The geometry's dark panel reads as a closed door, and models like to hang one there.
+      (o.type === 'doorway' ? ' It is an open doorway with no door: the dark area is the unlit hall beyond. Keep it open and empty, with nothing standing in it.' : ''));
   }
   for (const type of ['window', 'doorway']) {
     const all = openings.filter(o => o.type === type);
@@ -262,13 +324,12 @@ function frameLines(frame) {
 function buildPrompt({ request, images, refs, palette, docs }) {
   const { room, pov, options = {} } = request;
   const cam = pov.room || {};
-  const refsByItem = new Map(refs.map(r => [r.item, r]));
-  // Everything the mask pass could see, biggest first; the rest is named so it doesn't get invented.
+  const refsByProduct = new Map();
+  for (const r of refs) if (!refsByProduct.has(r.product)) refsByProduct.set(r.product, r);
+  // Everything the mask pass could see, biggest first, grouped the way the picture shows it.
   const decorate = it => ({ ...it, words: materialWords(docs.get(it.file), palette) });
-  const visible = request.items.filter(it => it.visible).sort((a, b) => (b.coverage || 0) - (a.coverage || 0));
-  const clear = visible.filter(it => (it.coverage || 0) >= 0.01).map(decorate);
-  const slivers = visible.filter(it => (it.coverage || 0) < 0.01).map(decorate);
-  const hidden = request.items.filter(it => !it.visible);
+  const visible = request.items.filter(it => it.visible).sort((a, b) => (b.coverage || 0) - (a.coverage || 0)).map(decorate);
+  const groups = groupPieces(visible);
 
   const geometry = images.findIndex(i => i.role === 'geometry') + 1;
   const mask = images.findIndex(i => i.role === 'mask') + 1;
@@ -310,12 +371,7 @@ function buildPrompt({ request, images, refs, palette, docs }) {
   out.push('', 'CAMERA', ...cameraLines(cam, pov).map(l => '  ' + l));
   const frame = frameLines(pov.frame);
   if (frame.length) out.push('', 'WHAT THE FRAME SHOWS', ...frame.map(l => '  ' + l));
-  if (clear.length) out.push('', 'IN FRAME, largest first', ...itemLines(clear, refsByItem, 1));
-  if (slivers.length) out.push('', 'PARTLY HIDDEN OR FAR', ...itemLines(slivers, refsByItem, clear.length + 1));
-  if (hidden.length) {
-    out.push('', 'NOT IN FRAME — do not draw these',
-      '  ' + hidden.map(it => it.label || it.name).join(', ') + '.');
-  }
+  if (groups.length) out.push('', 'IN FRAME, largest first', '  ' + countLine(groups), ...itemLines(groups, refsByProduct));
   const windows = (pov.frame?.openings || []).filter(o => o.type === 'window');
   const windowOut = windows.length && windows.every(o => !o.screenBox);
   out.push('', 'LIGHTING', '  ' + (options.lighting ||
@@ -334,7 +390,7 @@ const PROMPT_SYSTEM = `You turn a structured description of a room into one prom
 Rewrite the description as tight, concrete photographic direction. Rules, all of them absolute:
 - Keep every measurement, colour, material, count, bearing, percentage and image number exactly as given.
 - Never add an object, material, or piece of decor that is not listed. Never drop a listed piece.
-- Keep the instruction that the geometry image fixes the camera, the room and the placement and size of everything, and keep the "do not draw" list.
+- Keep the instruction that the geometry image fixes the camera, the room and the placement and size of everything, and keep the exact count of pieces and the statement that there is nothing else.
 - Keep the camera's height, tilt and lens, and every statement about which walls, corners, windows and doorways are or are not in the frame. Image models drift towards a level, eye-height view and draw windows they are told about even when they are behind the camera, so lead with the composition and say plainly what is not in view.
 Reply with the prompt text only: no preamble, no markdown, no commentary.`;
 
@@ -347,6 +403,8 @@ const PROMPT_SYSTEM_DECOR = PROMPT_SYSTEM.replace(
 const AUDIT_SYSTEM = `You check a generated interior photograph against the untextured 3D render it was supposed to match.
 
 The first image is the photograph, the second is the geometry it had to follow. Report only differences that matter for a furniture layout: a piece missing, added, moved, resized, re-oriented, or the wrong material; a window, doorway or wall in the wrong place; a camera that clearly moved.
+
+The geometry is simplified massing, not a detailed model. Doors, drawers, shelf and cabinet details, pillows, bedding, window mullions and shades come from the product photos and the brief: don't report differences in them — only placement, size, count, orientation, openings and camera.
 
 One finding per line, plain text, most serious first, at most eight lines. If the photograph follows the geometry, reply with exactly: ok`;
 

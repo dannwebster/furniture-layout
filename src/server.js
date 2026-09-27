@@ -17,6 +17,8 @@
 //                          <output>/renders/render-<timestamp>/, returning that render's meta.json
 //   GET  /api/render/config which image providers and models the keys in .env allow (no keys in the reply)
 //   GET  /api/renders      the meta.json of every saved render, newest first
+//   DELETE /api/render?name=<render>
+//                          delete one render's folder under <output>/renders/
 //   GET  /renders/...      the saved render images, from <output>/renders/
 //   GET  /api/events       server-sent events: "change" when data files change, "page" when a page changes,
 //                          "render" with { stage, ... } while a render runs
@@ -421,6 +423,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/renders') {
       return sendJson(res, { renders: await readRenders() });
     }
+    if (req.method === 'DELETE' && url.pathname === '/api/render') {
+      return sendJson(res, await deleteRender(url.searchParams.get('name') || ''));
+    }
     if (req.method === 'POST' && url.pathname === '/api/export-render') {
       const content = url.searchParams.get('content');
       if (content !== 'prompt' && content !== 'zip') return send(res, 400, 'content must be "prompt" or "zip"');
@@ -578,6 +583,17 @@ async function exportZip(name, content, body) {
 // beside the layout exports. content=prompt writes the brief that was actually sent (Claude's rewrite
 // when there is one) as <name>-prompt.txt; content=zip bundles the whole render — both briefs, the
 // geometry and mask passes, the picture, meta.json, and the product photos it used as references.
+// The × on a tile in the 3D view's strip: the render's folder goes, and with it the brief, the passes
+// and the picture. Anything already exported out of it into OUTPUT_DIR is left alone — those are files
+// the user asked for, sitting beside the layout exports.
+async function deleteRender(name) {
+  if (!RENDER_NAME.test(name)) throw badRequest(`bad render name "${name}"`);
+  const dir = path.join(RENDERS_DIR, name);
+  if (!fs.existsSync(dir)) throw badRequest(`no render called "${name}"`);
+  await fsp.rm(dir, { recursive: true, force: true });
+  return { deleted: name };
+}
+
 async function exportRender(name, content) {
   if (!RENDER_NAME.test(name)) throw badRequest(`bad render name "${name}"`);
   const dir = path.join(RENDERS_DIR, name);

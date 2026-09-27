@@ -9,7 +9,8 @@
     "serve": "node src/server.js",
     "dev": "node --watch-path=./src/server.js --watch-path=./src/render.mjs --watch-preserve-output src/server.js",
     "build": "node src/server.js --build",
-    "photos": "node src/fetch-photos.js"
+    "photos": "node src/fetch-photos.js",
+    "sync-photos": "node src/sync-photos.js"
   },
   "engines": {
     "node": ">=20"

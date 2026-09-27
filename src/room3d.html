@@ -94,15 +94,23 @@
     grid-area: shots; display: flex; gap: 8px; padding: 8px 12px; overflow-x: auto; overflow-y: hidden;
     background: #fbfaf8; border-top: 1px solid var(--line); overscroll-behavior-x: contain;
   }
+  /* One wrapper per render so its delete button has something to sit in. */
+  #shots .shot { position: relative; flex: none; width: 120px; height: 80px; }
   #shots img, #shots .brief {
-    flex: none; width: 120px; height: 80px; object-fit: cover; cursor: pointer; box-sizing: border-box;
+    display: block; width: 100%; height: 100%; object-fit: cover; cursor: pointer; box-sizing: border-box;
     border: 1px solid var(--line); border-radius: 4px; background: #eee9e2;
   }
   /* A render that stopped at the brief, or failed: no picture, but its prompt is still worth exporting. */
   #shots .brief {
     display: grid; place-items: center; border-style: dashed; font-size: 11px; color: var(--muted);
   }
-  #shots .on { border-color: #7f8f6b; box-shadow: 0 0 0 2px #dfe7d6; }
+  #shots .shot.on img, #shots .shot.on .brief { border-color: #7f8f6b; box-shadow: 0 0 0 2px #dfe7d6; }
+  #shots .del {
+    position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; padding: 0; cursor: pointer;
+    font: 12px/1 system-ui, sans-serif; color: #fff; background: rgba(42, 38, 34, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 50%;
+  }
+  #shots .del:hover, #shots .del:focus-visible { background: var(--danger); }
   #renderPanel .fade { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); }
 </style>
 <script type="importmap">
@@ -1055,28 +1063,63 @@ function selectShot(shot) {
 
 // The strip holds every render, but only builds tiles a batch at a time as it's scrolled towards the end.
 const SHOTS_BATCH = 24;
-const THUMB_H = 80;        // px, matches #shots img in the stylesheet
+const THUMB_H = 80;        // px, matches #shots .shot in the stylesheet
 
 function shotTile(shot) {
-  const image = hasImage(shot);
-  const tile = document.createElement(image ? 'img' : 'div');
-  if (image) { tile.src = `/${shot.urls.renders[0]}`; tile.loading = 'lazy'; }
-  else { tile.className = 'brief'; tile.textContent = shot.error ? 'failed' : 'brief'; }
+  const wrap = document.createElement('div');
+  wrap.className = 'shot';
+  wrap.dataset.name = shot.name;
   // Sized from the capture before the picture loads, so the strip knows how far it reaches.
   const pov = shot.pov || {};
-  if (pov.width > 0 && pov.height > 0) tile.style.width = `${Math.round(THUMB_H * pov.width / pov.height)}px`;
-  tile.dataset.name = shot.name;
-  tile.classList.toggle('on', shot === renderUI.shot || (renderUI.shot && renderUI.shot.name === shot.name));
-  tile.title = `${new Date(shot.created).toLocaleString()} · ${shot.provider}` +
+  if (pov.width > 0 && pov.height > 0) wrap.style.width = `${Math.round(THUMB_H * pov.width / pov.height)}px`;
+  wrap.classList.toggle('on', shot === renderUI.shot || (renderUI.shot && renderUI.shot.name === shot.name));
+  // The folder first: its name is the UTC time, which the local time below doesn't match.
+  wrap.title = `renders/${shot.name}/\n${new Date(shot.created).toLocaleString()} (local) · ${shot.provider}` +
     (shot.error ? `\n${shot.error}` : '') +
     '\nClick to select, double-click to stand here again';
-  tile.addEventListener('click', () => {
+  wrap.addEventListener('click', () => {
     if (shot !== renderUI.shot) selectShot(shot);
     else if (hasImage(shot) && !overlayOpen()) showOverlay(true); // selected but closed: open it again
     else selectShot(null);
   });
-  tile.addEventListener('dblclick', () => { setPose(shot.pov); selectShot(shot); });
-  return tile;
+  wrap.addEventListener('dblclick', () => { setPose(shot.pov); selectShot(shot); });
+
+  const image = hasImage(shot);
+  const tile = document.createElement(image ? 'img' : 'div');
+  if (image) { tile.src = `/${shot.urls.renders[0]}`; tile.loading = 'lazy'; tile.alt = ''; }
+  else { tile.className = 'brief'; tile.textContent = shot.error ? 'failed' : 'brief'; }
+
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'del';
+  del.textContent = '×';
+  del.title = 'Delete this render';
+  del.setAttribute('aria-label', `Delete the render in renders/${shot.name}/`);
+  // Its own click, not a selection.
+  del.addEventListener('click', e => { e.stopPropagation(); deleteShot(shot); });
+  del.addEventListener('dblclick', e => e.stopPropagation());
+
+  wrap.append(tile, del);
+  return wrap;
+}
+
+// The × on a tile. Asks first, then the server removes the render's folder.
+async function deleteShot(shot) {
+  if (renderUI.busy) return;
+  const when = new Date(shot.created).toLocaleString();
+  const ok = confirm(`Are you sure you want to delete this render?\n\n${shot.name}\n${when}\n\n` +
+    'Its folder goes with it: the brief, both passes and the picture. Anything you exported is kept.');
+  if (!ok) return;
+  try {
+    const res = await fetch(`/api/render?name=${encodeURIComponent(shot.name)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error((await res.text()) || `the server said ${res.status}`);
+    if (renderUI.shot && renderUI.shot.name === shot.name) selectShot(null);
+    renderUI.shots = renderUI.shots.filter(s => s.name !== shot.name);
+    drawShots();
+    renderStatus(`deleted ${shot.name}`);
+  } catch (err) {
+    renderStatus(err.message, true);
+  }
 }
 
 // Appends batches until the strip reaches past its right edge (or runs out of renders).
@@ -1211,7 +1254,9 @@ if (!STANDALONE) {
     if (!config) return;
     renderUI.config = config;
     const ready = Object.keys(config.providers).filter(p => config.providers[p]);
-    fillSelect($('#rProvider'), ready, ready.map(p => `${p} · ${config.models[p]}`));
+    // OpenAI's edit endpoint treats every image as a loose reference: in practice it re-frames the shot.
+    const hint = { openai: ' · loose on composition' };
+    fillSelect($('#rProvider'), ready, ready.map(p => `${p} · ${config.models[p]}${hint[p] || ''}`));
     if (prefs && ready.includes(prefs.provider)) $('#rProvider').value = prefs.provider;
     else if (ready.includes(config.defaultProvider)) $('#rProvider').value = config.defaultProvider;
     $('#renderPanel').hidden = false;
