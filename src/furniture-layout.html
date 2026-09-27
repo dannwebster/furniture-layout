@@ -234,6 +234,8 @@
       <h2>Project</h2>
       <div class="btnrow">
         <button id="btnReload">Reload files</button>
+        <button id="btnDownload" hidden title="Save the current layout as furniture_placements.json">Download placements</button>
+        <button id="btnReset" hidden title="Discard the edits kept in this browser">Reset to built layout</button>
       </div>
       <div class="muted" id="sourceInfo"></div>
     </section>
@@ -349,6 +351,9 @@ const COLORS_FILE = 'material_colors.json';
 const VIEW3D_CHANNEL = 'furniture-layout-3d';
 const PLACEMENTS_FILE = 'furniture_placements.json';
 const LS_PREFS = 'furnitureLayout.prefs';
+// Set by `server.js --build`: { built, dataDir, files, room3d } baked into a standalone copy of this page.
+const EMBEDDED = window.FURNITURE_LAYOUT_EMBEDDED || null;
+const LS_STANDALONE = 'furnitureLayout.standalone.placements';
 const EPS = 0.05;
 const WALL = 4;          // drawn wall thickness, inches
 const WINDOW_REACH = 6;  // a piece this close to a window wall counts as "in front of" the window
@@ -435,6 +440,7 @@ const state = {
 
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } };
+const lsDel = k => { try { localStorage.removeItem(k); } catch { /* storage unavailable */ } };
 
 let toastTimer;
 function toast(msg, isError = false) {
@@ -1240,6 +1246,9 @@ function updateSaveStatus() {
   if (state.saveError) {
     s.innerHTML = `<span class="warn">●</span> Could not save ${PLACEMENTS_FILE}: ${escapeHtml(state.saveError)}
       <button id="btnRetry">Retry</button>`;
+  } else if (EMBEDDED) {
+    const when = state.lastSaved ? `saved in this browser ${state.lastSaved.toLocaleTimeString()}` : 'edits save in this browser';
+    s.innerHTML = `<span class="ok">●</span> <b>Standalone</b> · ${when}`;
   } else if (!state.online) {
     s.innerHTML = `<span class="warn">●</span> Server not reachable — is <b>npm start</b> still running?`;
   } else {
@@ -1250,7 +1259,7 @@ function updateSaveStatus() {
 
 function renderEmpty() {
   const card = $('#emptyCard');
-  if (location.protocol === 'file:') {
+  if (location.protocol === 'file:' && !EMBEDDED) {
     card.innerHTML = `<h2 style="margin-top:0">Start the server</h2>
       <p>This page is served by the Node app. In the project folder run:</p>
       <p><kbd>npm start -- <i>&lt;data folder&gt;</i></kbd></p>
@@ -1345,8 +1354,11 @@ async function writePlacements() {
   state.saving = true; updateSaveStatus();
   try {
     state.dirty = false;
-    const r = await fetch('/api/placements', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: placementsText() });
-    if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+    if (EMBEDDED) saveLocal();
+    else {
+      const r = await fetch('/api/placements', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: placementsText() });
+      if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+    }
     state.lastSaved = new Date();
     state.saveError = null;
   } catch (err) {
@@ -1359,8 +1371,70 @@ async function writePlacements() {
 
 // Flush a pending save if the tab is closed mid-debounce.
 window.addEventListener('pagehide', () => {
-  if (state.dirty && state.room) navigator.sendBeacon('/api/placements', new Blob([placementsText()], { type: 'application/json' }));
+  if (!state.dirty || !state.room) return;
+  if (EMBEDDED) { try { saveLocal(); } catch { /* storage unavailable */ } }
+  else navigator.sendBeacon('/api/placements', new Blob([placementsText()], { type: 'application/json' }));
 });
+
+// ==== Standalone page ====
+// A page built by `server.js --build` has no server: the project files come from EMBEDDED and edits
+// are kept in localStorage, tagged with a hash of the placements baked into the build. After a
+// rebuild with different placements the build wins, so older browser edits don't shadow it.
+function hashText(s) {
+  let h = 0x811c9dc5; // FNV-1a
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(16);
+}
+const BUILT_BASE = EMBEDDED ? hashText((EMBEDDED.files.find(f => f.path === PLACEMENTS_FILE) || { text: '' }).text) : null;
+
+// Throws (e.g. quota exceeded) so writePlacements() can report it.
+function saveLocal() {
+  localStorage.setItem(LS_STANDALONE, JSON.stringify({ base: BUILT_BASE, saved: Date.now(), text: placementsText() }));
+}
+
+function loadEmbedded(useSaved = true) {
+  state.dataDir = EMBEDDED.dataDir || null;
+  let files = EMBEDDED.files;
+  const local = useSaved ? safeParse(lsGet(LS_STANDALONE)) : null;
+  if (isObj(local) && typeof local.text === 'string') {
+    if (local.base === BUILT_BASE) {
+      files = files.filter(f => f.path !== PLACEMENTS_FILE).concat({ path: PLACEMENTS_FILE, text: local.text });
+      if (Number.isFinite(local.saved)) state.lastSaved = new Date(local.saved);
+    } else {
+      lsDel(LS_STANDALONE);
+      toast('This page was rebuilt with a different layout — edits saved in this browser were replaced by it.');
+    }
+  }
+  if (!loadProject(files)) return;
+  $('#sourceInfo').textContent += ` · built ${new Date(EMBEDDED.built).toLocaleString()}`;
+  updateSaveStatus();
+}
+
+function downloadPlacements() {
+  const url = URL.createObjectURL(new Blob([placementsText()], { type: 'application/json' }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: PLACEMENTS_FILE });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function resetToBuilt() {
+  if (!confirm('Discard the edits saved in this browser and go back to the layout this page was built with?')) return;
+  clearTimeout(saveTimer);
+  lsDel(LS_STANDALONE);
+  Object.assign(state, { products: [], items: [], dirty: false, lastSaved: null, saveError: null });
+  loadEmbedded(false);
+}
+
+function initStandalone() {
+  $('#btnReload').hidden = true;
+  $('#btnDownload').hidden = false;
+  $('#btnReset').hidden = false;
+  $('#btnDownload').addEventListener('click', downloadPlacements);
+  $('#btnReset').addEventListener('click', resetToBuilt);
+  loadEmbedded();
+}
 
 // ==== Loading ====
 async function fetchProject(announce = false) {
@@ -1605,7 +1679,7 @@ $('#gridToggle').addEventListener('change', e => { state.showGrid = e.target.che
 // room3d.html runs in its own window and gets the whole scene over a BroadcastChannel: at most
 // ~60 times a second after changes, and on request when it (re)opens ("hello"). A timer rather
 // than requestAnimationFrame, so updates still go out while this page is a background tab.
-const view3d = { chan: null, queued: false, win: null };
+const view3d = { chan: null, queued: false, win: null, url: null };
 // Every open layout tab shares the channel, so scenes are tagged with this tab's id and the popup
 // only follows the tab that opened it (a stale tab would otherwise snap it back to an old layout).
 // sessionStorage keeps the id across this tab's own reloads.
@@ -1633,21 +1707,38 @@ function sceneMessage() {
 }
 
 function postScene() {
-  if (!view3d.chan || view3d.queued) return;
+  if ((!view3d.chan && !EMBEDDED) || view3d.queued) return;
   view3d.queued = true;
-  setTimeout(() => { view3d.queued = false; view3d.chan.postMessage(sceneMessage()); }, 16);
+  setTimeout(() => {
+    view3d.queued = false;
+    if (EMBEDDED) { if (view3d.win && !view3d.win.closed) view3d.win.postMessage(sceneMessage(), '*'); }
+    else view3d.chan.postMessage(sceneMessage());
+  }, 16);
 }
 
-if ('BroadcastChannel' in window) {
+// A standalone page may run from file://, where BroadcastChannel can't be relied on (opaque or
+// per-file origins), so it talks to the popup it opened directly with postMessage instead.
+if (EMBEDDED) {
+  window.addEventListener('message', e => {
+    if (e.data && e.data.type === 'hello' && e.source && e.source === view3d.win) postScene();
+  });
+} else if ('BroadcastChannel' in window) {
   view3d.chan = new BroadcastChannel(VIEW3D_CHANNEL);
   view3d.chan.onmessage = e => {
     if (e.data && e.data.type === 'hello' && (!e.data.source || e.data.source === TAB_ID)) postScene();
   };
 }
 
+// The standalone 3D page is carried as text in EMBEDDED and opened from a blob: URL.
+function view3dUrl() {
+  if (!EMBEDDED) return `/room3d.html?source=${encodeURIComponent(TAB_ID)}`;
+  if (view3d.url) URL.revokeObjectURL(view3d.url);
+  return view3d.url = URL.createObjectURL(new Blob([EMBEDDED.room3d], { type: 'text/html' }));
+}
+
 $('#btn3d').addEventListener('click', () => {
   if (view3d.win && !view3d.win.closed) { view3d.win.focus(); return; }
-  view3d.win = window.open(`/room3d.html?source=${encodeURIComponent(TAB_ID)}`, 'room3d', 'width=1280,height=800');
+  view3d.win = window.open(view3dUrl(), 'room3d', 'width=1280,height=800');
   if (!view3d.win) toast('The browser blocked the 3D window — allow pop-ups for this page.', true);
 });
 
@@ -1671,6 +1762,7 @@ $('#btn3d').addEventListener('click', () => {
   $('#gridToggle').checked = state.showGrid;
 
   refreshAll();
+  if (EMBEDDED) { initStandalone(); return; }
   if (location.protocol === 'file:') return; // renderEmpty() explains how to start the server
   await fetchProject();
   listenForChanges();

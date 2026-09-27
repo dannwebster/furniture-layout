@@ -505,7 +505,18 @@ function applyScene(msg) {
   buildFurniture(msg.items || []);
 }
 
-if ('BroadcastChannel' in window) {
+// A standalone build (server.js --build) opens this page from a blob: URL, possibly under file://,
+// where BroadcastChannel can't be relied on; there the opener posts scenes to this window directly.
+const STANDALONE = !!window.FURNITURE_LAYOUT_STANDALONE;
+if (STANDALONE) {
+  addEventListener('message', e => {
+    if (e.source && e.source === window.opener && e.data && e.data.type === 'scene') applyScene(e.data);
+  });
+  // Ask for the scene until the layout page answers (it may still be loading).
+  const hello = () => { if (!gotScene && window.opener) { window.opener.postMessage({ type: 'hello' }, '*'); setTimeout(hello, 1500); } };
+  hello();
+  setTimeout(() => { if (!gotScene) $('#waiting').hidden = false; }, 2000);
+} else if ('BroadcastChannel' in window) {
   const chan = new BroadcastChannel(CHANNEL);
   chan.onmessage = e => {
     if (e.data && e.data.type === 'scene' && (!SOURCE || e.data.source === SOURCE)) applyScene(e.data);
@@ -519,10 +530,12 @@ if ('BroadcastChannel' in window) {
 }
 
 // Reload when this page's file changes, like the layout page does.
-try {
-  const es = new EventSource('/api/events');
-  es.addEventListener('page', () => location.reload());
-} catch { /* opened without the server */ }
+if (!STANDALONE) {
+  try {
+    const es = new EventSource('/api/events');
+    es.addEventListener('page', () => location.reload());
+  } catch { /* opened without the server */ }
+}
 
 // ==== Movement ====
 let bounds = null;

@@ -7,6 +7,9 @@
 //                          furniture/ and rugs/ (paths relative to the data dir), plus furniture_placements.json
 //   PUT  /api/placements   write <output>/furniture_placements.json (POST also accepted, for sendBeacon)
 //   GET  /api/events       server-sent events: "change" when data files change, "page" when a page changes
+//   node server.js [data-dir] --build
+//                          instead of serving, write <output>/furniture-layout.html: one standalone page with
+//                          the project data and the 3D view baked in, which runs from file:// with no server
 // The data files live outside the program: pass the folder on the command line (or set DATA_DIR).
 'use strict';
 
@@ -23,10 +26,12 @@ const USAGE = `Usage: node server.js [data-dir] [options]
 
 Options:
   -d, --data <dir>     where the input files are read from
-  -o, --output <dir>   where furniture_placements.json is written
+  -o, --output <dir>   where furniture_placements.json (and the --build page) is written
                        (default: $OUTPUT_DIR, else <data-dir>/../output when the data folder is
                        named "data", else <data-dir>/output)
       --open           open the page in a browser once the server is listening
+  -b, --build          don't serve: write <output-dir>/furniture-layout.html, a single page with all
+                       the data baked in that works without the server (edits save to the browser)
   -h, --help           show this message
 
 Environment: PORT (default 3000), HOST (default 127.0.0.1), DATA_DIR, OUTPUT_DIR.
@@ -39,7 +44,7 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const opts = { data: null, output: null, open: false, help: false };
+  const opts = { data: null, output: null, open: false, build: false, help: false };
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -55,6 +60,7 @@ function parseArgs(argv) {
       case '-d': case '--data': opts.data = value(); break;
       case '-o': case '--output': opts.output = value(); break;
       case '--open': opts.open = true; break;
+      case '-b': case '--build': opts.build = true; break;
       case '-h': case '--help': opts.help = true; break;
       default:
         if (flag.startsWith('-')) fail(`unknown option ${flag}`);
@@ -199,11 +205,13 @@ function onAppChange(filename) {
   clearTimeout(pageTimer);
   pageTimer = setTimeout(() => broadcast('page'), 150);
 }
-try {
-  fs.watch(DATA_DIR, { recursive: true }, (_type, filename) => onDataChange(filename));
-  fs.watch(APP_DIR, (_type, filename) => onAppChange(filename && String(filename)));
-} catch (err) {
-  console.warn(`File watching unavailable (${err.message}); use "Reload files" in the page.`);
+function watchFiles() {
+  try {
+    fs.watch(DATA_DIR, { recursive: true }, (_type, filename) => onDataChange(filename));
+    fs.watch(APP_DIR, (_type, filename) => onAppChange(filename && String(filename)));
+  } catch (err) {
+    console.warn(`File watching unavailable (${err.message}); use "Reload files" in the page.`);
+  }
 }
 
 // ---- HTTP ----
@@ -243,17 +251,47 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// Keep event streams alive through idle periods.
-setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 25000).unref();
+// ---- Standalone build ----
+// JSON for an inline <script>: escaping "<" keeps "</script>" and "<!--" in the data from ending it.
+const inlineJson = value => JSON.stringify(value).replace(/</g, '\\u003c');
+// Insert before </head>; a replacer function so "$" in the inserted text isn't read as a pattern.
+function injectHead(html, snippet, file) {
+  if (!/<\/head>/i.test(html)) throw new Error(`no </head> in ${file}`);
+  return html.replace(/<\/head>/i, () => `${snippet}\n</head>`);
+}
 
-server.listen(PORT, HOST, () => {
-  const url = `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/`;
-  console.log(`Furniture layout running at ${url}`);
-  console.log(`Reading ${ROOM_FILE} and ${PRODUCT_DIRS.map(d => d + '/**/*.json').join(', ')} from ${DATA_DIR}`);
-  console.log(`Saving ${PLACEMENTS_FILE} to ${OUTPUT_DIR}`);
-  if (process.argv.includes('--open')) {
-    const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
-      : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
-    spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
-  }
-});
+async function build() {
+  const files = await readProject();
+  const room3d = injectHead(await fsp.readFile(path.join(APP_DIR, VIEW3D_FILE), 'utf8'),
+    '<script>window.FURNITURE_LAYOUT_STANDALONE = true;</script>', VIEW3D_FILE);
+  const payload = { built: new Date().toISOString(), dataDir: DATA_DIR, files, room3d };
+  const page = injectHead(await fsp.readFile(path.join(APP_DIR, PAGE_FILE), 'utf8'),
+    `<script>window.FURNITURE_LAYOUT_EMBEDDED = ${inlineJson(payload)};</script>`, PAGE_FILE);
+  await fsp.mkdir(OUTPUT_DIR, { recursive: true });
+  const target = path.join(OUTPUT_DIR, PAGE_FILE);
+  await fsp.writeFile(target, page, 'utf8');
+  const placed = files.some(f => f.path === PLACEMENTS_FILE) ? `with ${PLACEMENTS_FILE}` : `no ${PLACEMENTS_FILE} yet`;
+  console.log(`Read ${files.length} files from ${DATA_DIR} (${placed})`);
+  console.log(`Wrote ${target} (${(Buffer.byteLength(page) / 1024).toFixed(0)} KB)`);
+}
+
+function serve() {
+  watchFiles();
+  // Keep event streams alive through idle periods.
+  setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 25000).unref();
+
+  server.listen(PORT, HOST, () => {
+    const url = `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/`;
+    console.log(`Furniture layout running at ${url}`);
+    console.log(`Reading ${ROOM_FILE} and ${PRODUCT_DIRS.map(d => d + '/**/*.json').join(', ')} from ${DATA_DIR}`);
+    console.log(`Saving ${PLACEMENTS_FILE} to ${OUTPUT_DIR}`);
+    if (args.open) {
+      const [cmd, cmdArgs] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+        : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+      spawn(cmd, cmdArgs, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+    }
+  });
+}
+
+if (args.build) build().catch(err => { console.error(`server.js: build failed: ${err.message}`); process.exit(1); });
+else serve();

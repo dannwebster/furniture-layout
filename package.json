@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/server.js --open",
     "serve": "node src/server.js",
+    "build": "node src/server.js --build",
     "photos": "node src/fetch-photos.js"
   },
   "engines": {

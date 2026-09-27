@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Download product photos for every file under <data>/furniture/ and <data>/rugs/. No dependencies.
-//   node fetch-photos.js [filter...] [--data <dir>] [--force] [--out <dir>]
+//   node fetch-photos.js [filter...] [--data <dir>] [--all] [--force] [--out <dir>]
 // Photos land in <output>/photos/<same path as the product file, minus .json>/, e.g.
 //   output/photos/furniture/room_and_board/hudson_dresser/01-product.webp
-// alongside a sources.json listing where each file came from. Re-runs skip photos already on disk
+// alongside a sources.json listing where each file came from. Only the main product photo is saved
+// unless --all asks for every photo the page lists. Re-runs skip photos already on disk
 // (by source URL); --force downloads everything again. Filters match against the product path.
 // --data (or DATA_DIR) says where the product files live, default ../data; --out overrides the
 // photo folder, which otherwise follows the output dir server.js would use (OUTPUT_DIR, else the
@@ -26,6 +27,7 @@ const SCENE7_MAX = 4000; // largest width/height Scene7 will serve
 // ---- CLI ----
 const argv = process.argv.slice(2);
 const force = argv.includes('--force');
+const all = argv.includes('--all');
 const dataIdx = Math.max(argv.indexOf('--data'), argv.indexOf('-d'));
 const outIdx = argv.indexOf('--out');
 function optionValue(idx, flag) {
@@ -233,7 +235,11 @@ async function processProduct(rel) {
   const html = await fetchPage(pageUrl);
   const { title, photos: found } = scraperFor(pageUrl)(html, pageUrl);
   const seen = new Set();
-  const photos = found.filter(p => !seen.has(p.url) && seen.add(p.url));
+  const unique = found.filter(p => !seen.has(p.url) && seen.add(p.url));
+  // By default keep only the main render: the first product photo, plus Room & Board's product-alt when it
+  // can't tell which render shows the configuration. --all adds details, dimensions, room scenes and galleries.
+  const main = unique.find(p => p.kind === 'product');
+  const photos = all ? unique : unique.filter(p => p === main || p.kind === 'product-alt');
   if (!photos.length) return { rel, name, error: `no photos found on ${pageUrl}` };
 
   const previous = force ? null : await readManifest(dir);
