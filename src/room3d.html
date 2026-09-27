@@ -1133,6 +1133,9 @@ async function doRender() {
   if (!scene3d || !scene3d.room) { renderStatus('waiting for the layout page', true); return; }
   renderUI.busy = true;
   $('#rGo').disabled = true;
+  // The findings belong to the selected (older) shot; don't leave them up while a new one is made.
+  $('#rFindings').hidden = true;
+  $('#rFindings').replaceChildren();
   renderStatus('capturing the view…');
   controls.unlock();
   try {

@@ -31,7 +31,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const zlib = require('zlib');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { pathToFileURL } = require('url');
 
 const USAGE = `Usage: node server.js [data-dir] [options]
@@ -45,9 +45,11 @@ Options:
                        (default: $OUTPUT_DIR, else <data-dir>/../output when the data folder is
                        named "data", else <data-dir>/output)
       --open           open the page in a browser once the server is listening
-      --browser <b>    which browser --open uses: a name Windows can resolve ("chrome", "msedge"),
-                       a macOS application name, or a full path (default: the system default
-                       browser; $BROWSER does the same). Implies --open.
+      --browser <b>    which browser --open uses: "chrome", "msedge", "firefox", a macOS application
+                       name, or a full path to the executable. Windows names are looked up in the
+                       registry's App Paths and run directly, so this beats the system default even
+                       when that default is ignored. $BROWSER does the same, including from .env.
+                       Implies --open.
   -b, --build          don't serve: write <output-dir>/furniture-layout.html, a single page with all
                        the data baked in that works without the server (edits save to the browser)
   -h, --help           show this message
@@ -604,25 +606,46 @@ async function exportRender(name, content) {
   return { ...zip, files: entries.length };
 }
 
-// --open hands the URL to the system default browser, which is Edge on a lot of Windows machines even
-// when Chrome is installed. --browser (or $BROWSER) names one instead: a bare name Windows can resolve
-// ("chrome", "msedge", "firefox"), a macOS application name, or a full path. Each opener is tried in
-// turn and only a missing command moves on to the next, which also covers WSL, where there may be no
-// xdg-open and the Windows side has the real browsers.
+// Windows keeps browsers out of PATH and lists them under App Paths, which is how "start chrome"
+// finds one. Looking the name up here instead means the browser is run directly: no shell in the way,
+// a real error when the name is wrong, and none of start's "cannot find" message boxes, which wait
+// for a click and would hang the launch.
+function windowsBrowserPath(name) {
+  if (/[\\/]/.test(name)) return name; // already a path
+  const exe = /\.exe$/i.test(name) ? name : `${name}.exe`;
+  const key = `SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}`;
+  for (const root of ['HKCU', 'HKLM']) {
+    const out = spawnSync('reg', ['query', `${root}\\${key}`, '/ve'], { encoding: 'utf8', windowsHide: true });
+    const found = out.status === 0 && /REG_SZ\s+(.+)/.exec(out.stdout || '');
+    if (found) return found[1].trim().replace(/^"|"$/g, '');
+  }
+  return null;
+}
+
+// --open hands the URL to the system default browser, which turns out to be Edge on plenty of Windows
+// machines that have Chrome set as the default. --browser (or $BROWSER) names one instead: "chrome",
+// "msedge", "firefox", a macOS application name, or a full path to the executable. Each opener is tried
+// in turn and a missing one moves on to the next, which also covers WSL, where there may be no
+// xdg-open and the real browsers live on the Windows side.
 function openBrowser(url) {
   const named = args.browser || process.env.BROWSER || '';
   const attempts = [];
-  // "quick" openers hand the URL over and exit, so a non-zero exit means they failed and the next one
-  // is worth a try. A browser started directly stays alive, so its exit code says nothing.
+  // A "quick" opener hands the URL over and exits, so its exit code says whether it worked. A browser
+  // started directly stays alive, so its exit code says nothing.
   const opener = (cmd, cmdArgs) => attempts.push({ cmd, cmdArgs, quick: true });
   if (process.platform === 'win32') {
-    opener('cmd', ['/c', 'start', '', ...(named ? [named] : []), url]);
+    if (named) {
+      const exe = windowsBrowserPath(named);
+      if (exe) attempts.push({ cmd: exe, cmdArgs: [url], quick: false });
+      else console.warn(`No browser called "${named}" is installed — using the system default instead. Try "chrome", "msedge", "firefox", or a full path to the .exe.`);
+    }
+    opener('cmd', ['/c', 'start', '', url]); // the system default, and the fallback
   } else if (process.platform === 'darwin') {
     opener('open', named ? ['-a', named, url] : [url]);
   } else {
     if (named) attempts.push({ cmd: named, cmdArgs: [url], quick: false });
     for (const c of ['xdg-open', 'wslview', 'sensible-browser']) opener(c, [url]);
-    opener('cmd.exe', ['/c', 'start', '', ...(named ? [named] : []), url]);
+    opener('cmd.exe', ['/c', 'start', '', url]);
   }
   const attempt = i => {
     if (i >= attempts.length) return;
@@ -634,10 +657,7 @@ function openBrowser(url) {
       child.unref();
       return;
     }
-    // A quick opener hands the URL over and exits, so its exit code says whether it worked. Its stderr
-    // has to be captured rather than ignored: with nowhere to print "cannot find <browser>", Windows
-    // shows a message box instead and waits for it, so the command never exits at all.
-    const child = spawn(cmd, cmdArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(cmd, cmdArgs, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
     let why = '';
     child.stderr.on('data', chunk => { why += chunk; });
     child.on('error', () => attempt(i + 1));
