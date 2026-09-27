@@ -1,6 +1,6 @@
 {
   "room_file": "room_layout.json",
-  "saved": "2026-09-27T00:11:52.773Z",
+  "saved": "2026-09-27T00:22:00.244Z",
   "units": "feet_inches",
   "coordinate_system": {
     "origin": "southwest_corner",
@@ -10,70 +10,98 @@
     "rotation": "degrees clockwise viewed from above; 0 = front of the piece faces north (+y)"
   },
   "counts": {
-    "article/cooper_1_drawer_nightstand_walnut": 2,
-    "article/cooper_6_drawer_dresser_walnut": 1,
-    "article/cooper_king_low_profile_bed_walnut": 1
+    "room_and_board/eos_42_swivel_chair": 1,
+    "room_and_board/hudson_dresser": 1,
+    "room_and_board/hudson_king_bed": 1,
+    "room_and_board/hudson_two_drawer_nightstand": 2,
+    "room_and_board/nomad_9x12_olive_rug": 1
   },
   "placements": {
-    "article/cooper_1_drawer_nightstand_walnut": {
-      "file": "furniture/article/cooper_1_drawer_nightstand_walnut.json",
-      "name": "Cooper 1-Drawer Nightstand - Walnut",
+    "room_and_board/eos_42_swivel_chair": {
+      "file": "furniture/room_and_board/eos_42_swivel_chair.json",
+      "name": "Eos 42-inch Swivel Chair",
+      "x": "7' 0\"",
+      "y": "13' 0\"",
+      "rotation": 0,
+      "front_faces": "north",
+      "center": {
+        "x": "8' 9\"",
+        "y": "14' 9\""
+      }
+    },
+    "room_and_board/hudson_dresser": {
+      "file": "furniture/room_and_board/hudson_dresser.json",
+      "name": "Hudson 72w 20d 33h Six-Drawer Dresser",
+      "x": "2' 2\"",
+      "y": "0' 0\"",
+      "rotation": 0,
+      "front_faces": "north",
+      "center": {
+        "x": "5' 2\"",
+        "y": "0' 10\""
+      }
+    },
+    "room_and_board/hudson_king_bed": {
+      "file": "furniture/room_and_board/hudson_king_bed.json",
+      "name": "Hudson King Bed",
       "x": "0' 0\"",
-      "y": "12' 5 3/4\"",
+      "y": "10' 9 3/4\"",
       "rotation": 90,
       "front_faces": "east",
       "center": {
-        "x": "0' 7 1/8\"",
-        "y": "11' 8\""
+        "x": "3' 6 1/2\"",
+        "y": "7' 6 1/4\""
       }
     },
-    "article/cooper_1_drawer_nightstand_walnut#2": {
-      "file": "furniture/article/cooper_1_drawer_nightstand_walnut.json",
-      "name": "Cooper 1-Drawer Nightstand - Walnut",
+    "room_and_board/hudson_two_drawer_nightstand": {
+      "file": "furniture/room_and_board/hudson_two_drawer_nightstand.json",
+      "name": "Hudson 26w 20d 22h Two-Drawer Nightstand",
+      "x": "0' 0\"",
+      "y": "12' 11 3/4\"",
+      "rotation": 90,
+      "front_faces": "east",
+      "center": {
+        "x": "0' 10\"",
+        "y": "11' 10 3/4\""
+      }
+    },
+    "room_and_board/hudson_two_drawer_nightstand#2": {
+      "file": "furniture/room_and_board/hudson_two_drawer_nightstand.json",
+      "name": "Hudson 26w 20d 22h Two-Drawer Nightstand",
       "x": "0' 0\"",
       "y": "4' 2 3/4\"",
       "rotation": 90,
       "front_faces": "east",
       "center": {
-        "x": "0' 7 1/8\"",
-        "y": "3' 5\""
+        "x": "0' 10\"",
+        "y": "3' 1 3/4\""
       }
     },
-    "article/cooper_6_drawer_dresser_walnut": {
-      "file": "furniture/article/cooper_6_drawer_dresser_walnut.json",
-      "name": "Cooper 6-Drawer Double Dresser - Walnut",
-      "x": "3' 0\"",
-      "y": "0' 0\"",
+    "room_and_board/nomad_9x12_olive_rug": {
+      "file": "furniture/room_and_board/nomad_9x12_olive_rug.json",
+      "name": "Nomad 9'x12' Rug",
+      "x": "0' 0\"",
+      "y": "2' 2\"",
       "rotation": 0,
       "front_faces": "north",
       "center": {
-        "x": "5' 3\"",
-        "y": "0' 8 1/2\""
-      }
-    },
-    "article/cooper_king_low_profile_bed_walnut": {
-      "file": "furniture/article/cooper_king_low_profile_bed_walnut.json",
-      "name": "Cooper King Low Profile Bed - Walnut",
-      "x": "0' 0\"",
-      "y": "10' 10 1/4\"",
-      "rotation": 90,
-      "front_faces": "east",
-      "center": {
-        "x": "3' 7 1/8\"",
-        "y": "7' 6 1/2\""
+        "x": "4' 6\"",
+        "y": "8' 2\""
       }
     }
   },
   "not_placed": [
+    "article/cooper_1_drawer_nightstand_walnut",
+    "article/cooper_6_drawer_dresser_walnut",
+    "article/cooper_king_low_profile_bed_walnut",
     "article/frances_36_bookcase_storage_walnut",
     "article/lenia_king_panel_bed_walnut",
+    "room_and_board/arden_8x10_low_loop_oatmeal_rug",
     "room_and_board/arden_9x12_low_loop_oatmeal_rug",
-    "room_and_board/eos_42_swivel_chair",
+    "room_and_board/hastings_8x10_ivory_taupe_rug",
     "room_and_board/hastings_9x12_ivory_taupe_rug",
-    "room_and_board/hudson_dresser",
-    "room_and_board/hudson_king_bed",
-    "room_and_board/hudson_two_drawer_nightstand",
+    "room_and_board/kayseri_8x10_moss_rug",
     "room_and_board/kayseri_9x12_moss_rug",
-    "room_and_board/nomad_9x12_olive_rug"
+    "room_and_board/nomad_8x10_olive_rug"
   ]
 }

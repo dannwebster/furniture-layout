@@ -46,7 +46,7 @@
   },
   "materials": {
     "case": {
-      "wood": "maple",
+      "wood": "walnut",
       "color": "charcoal",
       "finish": "lacquer",
       "features": [
@@ -58,7 +58,7 @@
     },
     "base": {
       "style": "wood base",
-      "material": "maple",
+      "material": "walnut",
       "color": "charcoal",
       "finish": "lacquer",
       "features": [

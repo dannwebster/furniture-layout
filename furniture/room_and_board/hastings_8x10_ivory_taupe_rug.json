@@ -1,0 +1,69 @@
+{
+  "units": "inches",
+  "coordinate_system": {
+    "origin": "southwest_floor_corner",
+    "x_axis": "east_across_width",
+    "y_axis": "north_along_length",
+    "z_axis": "up"
+  },
+  "furniture": {
+    "name": "Hastings 8'x10' Loop Rug",
+    "collection": "Hastings",
+    "type": "area_rug",
+    "manufacturer": "Room & Board",
+    "size": "8'x10'",
+    "dimensions": {
+      "width": 96,
+      "length": 120,
+      "pile_height": 0.5
+    },
+    "item_number": "045041"
+  },
+  "geometry": {
+    "bounding_box": {
+      "min": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "max": {
+        "x": 96,
+        "y": 120,
+        "z": 0.5
+      }
+    },
+    "coverage_sq_ft": 80
+  },
+  "materials": {
+    "color": "ivory/taupe",
+    "fiber_content": {
+      "wool_percent": 100
+    },
+    "wool_type": "felted New Zealand wool",
+    "features": [
+      "machine tufted"
+    ]
+  },
+  "construction": {
+    "method": "machine tufted and hand finished",
+    "edge_detail": "clean-cut edge creates a natural profile",
+    "backing": "flexible latex"
+  },
+  "metadata": {
+    "price": {
+      "currency": "USD",
+      "configured_price": 3099,
+      "price_source": "user_provided",
+      "price_as_of": "2026-09-26"
+    },
+    "product_url": "https://www.roomandboard.com/catalog/rugs/monochromatic-rugs/hastings-loop-rugs/045041?utm_source=chatgpt.com",
+    "source_retrieved": "2026-09-26",
+    "rug_pad_recommended": true,
+    "product_origin": "Georgia, United States",
+    "material_origin": "United States and imported",
+    "notes": [
+      "Configured as the 8'x10' Hastings rug in ivory/taupe.",
+      "Room & Board describes Hastings as a deep, plush loop rug with tonal heathered texture."
+    ]
+  }
+}

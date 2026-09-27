@@ -1,0 +1,73 @@
+{
+  "units": "inches",
+  "coordinate_system": {
+    "origin": "southwest_floor_corner",
+    "x_axis": "east_across_width",
+    "y_axis": "north_along_length",
+    "z_axis": "up"
+  },
+  "furniture": {
+    "name": "Kayseri 8'x10' Rug",
+    "collection": "Kayseri",
+    "type": "area_rug",
+    "manufacturer": "Room & Board",
+    "size": "8'x10'",
+    "dimensions": {
+      "width": 96,
+      "length": 120,
+      "pile_height": 0.25
+    }
+  },
+  "geometry": {
+    "bounding_box": {
+      "min": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "max": {
+        "x": 96,
+        "y": 120,
+        "z": 0.25
+      }
+    },
+    "coverage_sq_ft": 80
+  },
+  "materials": {
+    "color": "moss",
+    "fiber_content": {
+      "wool_percent": 100
+    },
+    "finish": "hand washed",
+    "features": [
+      "hand knotted",
+      "hand washed",
+      "responsibly made",
+      "variegated color from natural dyeing technique",
+      "ideal for high-traffic areas"
+    ]
+  },
+  "construction": {
+    "method": "hand-knotted",
+    "edge_detail": "self-bound with matching yarns; ends knotted with fringe",
+    "density_knots_per_sq_in": 48,
+    "size_tolerance_percent": 3
+  },
+  "metadata": {
+    "price": {
+      "currency": "USD",
+      "configured_price": 2899,
+      "price_source": "user_provided",
+      "price_as_of": "2026-09-26"
+    },
+    "product_url": "https://www.roomandboard.com/catalog/rugs/9x12/kayseri-rugs?utm_source=chatgpt.com",
+    "source_retrieved": "2026-09-26",
+    "rug_pad_recommended": true,
+    "product_origin": "India",
+    "material_origin": "imported",
+    "notes": [
+      "Configured as the 8'x10' Kayseri rug in moss.",
+      "Room & Board notes that finished dimensions can vary by approximately +/-3% because of hand-knotted construction."
+    ]
+  }
+}
