@@ -27,6 +27,7 @@
     "wall": "#efebe4",
     "ceiling": "#faf8f4",
     "window": "#bfdcf0",
-    "trim": "#f7f5f1"
+    "trim": "#f7f5f1",
+    "doorway": "#262626"
   }
 }

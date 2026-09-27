@@ -80,7 +80,7 @@ const $ = s => document.querySelector(s);
 // Used when material_colors.json is missing or doesn't list a default.
 const BUILTIN = {
   wood: '#8a6a4a', upholstery: '#9b9690', metal: '#8a8a8a', rug: '#cfc6b4', mattress: '#f2efe8', pillow: '#fbfaf6',
-  floor: '#c8a47a', wall: '#efebe4', ceiling: '#faf8f4', window: '#bfdcf0', trim: '#f7f5f1',
+  floor: '#c8a47a', wall: '#efebe4', ceiling: '#faf8f4', window: '#bfdcf0', trim: '#f7f5f1', doorway: '#262626',
 };
 
 // ==== Renderer, camera, controls ====
@@ -216,7 +216,8 @@ function buildRoom(room) {
   const d = palette.defaults;
   const wallMat = mat(d.wall, { rough: 0.95 });
 
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L), mat(d.floor, { rough: 0.7 }));
+  const floorMat = mat(d.floor, { rough: 0.7 });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L), floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(W / 2, 0, L / 2);
   floor.receiveShadow = true;
@@ -257,38 +258,36 @@ function buildRoom(room) {
     wall.seg(cursor, wall.to, 0, H);
   }
 
-  // Window panes and door leaves.
+  // Window panes. Doorways are plain openings in the wall, with no door leaf; a dark panel just
+  // outside the wall closes them off so the sky doesn't show through.
   const inwardOf = { north: [0, 1], south: [0, -1], west: [1, 0], east: [-1, 0] };
   for (const h of openings) {
     const inward = inwardOf[h.o.wall] || [0, 1];
-    if (!h.door) {
-      const pane = mat(d.window, { rough: 0.1, opacity: 0.28 });
-      const mid = -WALL / 2; // centre of the wall's thickness, measured inward
+    if (h.door) {
+      const dark = mat(d.doorway, { rough: 1 });
+      const opts = { cast: false, receive: false };
       if (inward[1]) {
-        const z = (inward[1] > 0 ? 0 : L) + inward[1] * mid;
-        box(roomGroup, pane, h.s0, h.bottom, z - 0.25, h.s1, h.top, z + 0.25, { cast: false });
-        box(roomGroup, mat(d.trim), h.s0 - 2, h.bottom - 1, z - WALL / 2 - 1, h.s1 + 2, h.bottom, z + WALL / 2 + 1);
+        const z = (inward[1] > 0 ? 0 : L) - inward[1] * WALL; // outer face of the wall
+        box(roomGroup, dark, h.s0, 0, Math.min(z, z - inward[1]), h.s1, h.top, Math.max(z, z - inward[1]), opts);
+        box(roomGroup, floorMat, h.s0, -0.5, Math.min(z, z + inward[1] * WALL), h.s1, 0, Math.max(z, z + inward[1] * WALL), opts); // threshold
       } else {
-        const x = (inward[0] > 0 ? 0 : W) + inward[0] * mid;
-        box(roomGroup, pane, x - 0.25, h.bottom, h.s0, x + 0.25, h.top, h.s1, { cast: false });
-        box(roomGroup, mat(d.trim), x - WALL / 2 - 1, h.bottom - 1, h.s0 - 2, x + WALL / 2 + 1, h.bottom, h.s1 + 2);
+        const x = (inward[0] > 0 ? 0 : W) - inward[0] * WALL;
+        box(roomGroup, dark, Math.min(x, x - inward[0]), 0, h.s0, Math.max(x, x - inward[0]), h.top, h.s1, opts);
+        box(roomGroup, floorMat, Math.min(x, x + inward[0] * WALL), -0.5, h.s0, Math.max(x, x + inward[0] * WALL), 0, h.s1, opts);
       }
       continue;
     }
-    // Hinge at the end nearest the named corner (e.g. "northwest"), like the 2D door swing.
-    let hinge = h.a, free = h.b;
-    if (h.o.corner) {
-      const cx = /west/.test(h.o.corner) ? 0 : /east/.test(h.o.corner) ? W : null;
-      const cz = /north/.test(h.o.corner) ? 0 : /south/.test(h.o.corner) ? L : null;
-      const dist = p => Math.hypot(cx === null ? 0 : p[0] - cx, cz === null ? 0 : p[1] - cz);
-      if (dist(h.b) < dist(h.a)) { hinge = h.b; free = h.a; }
+    const pane = mat(d.window, { rough: 0.1, opacity: 0.28 });
+    const mid = -WALL / 2; // centre of the wall's thickness, measured inward
+    if (inward[1]) {
+      const z = (inward[1] > 0 ? 0 : L) + inward[1] * mid;
+      box(roomGroup, pane, h.s0, h.bottom, z - 0.25, h.s1, h.top, z + 0.25, { cast: false });
+      box(roomGroup, mat(d.trim), h.s0 - 2, h.bottom - 1, z - WALL / 2 - 1, h.s1 + 2, h.bottom, z + WALL / 2 + 1);
+    } else {
+      const x = (inward[0] > 0 ? 0 : W) + inward[0] * mid;
+      box(roomGroup, pane, x - 0.25, h.bottom, h.s0, x + 0.25, h.top, h.s1, { cast: false });
+      box(roomGroup, mat(d.trim), x - WALL / 2 - 1, h.bottom - 1, h.s0 - 2, x + WALL / 2 + 1, h.bottom, h.s1 + 2);
     }
-    // Leaf standing open at 90°, into the room, 1.5" thick on the opening side of the hinge.
-    const t = 1.5, len = Math.hypot(free[0] - hinge[0], free[1] - hinge[1]);
-    const along = [(free[0] - hinge[0]) / len, (free[1] - hinge[1]) / len];
-    const p0 = hinge, p1 = [hinge[0] + inward[0] * len + along[0] * t, hinge[1] + inward[1] * len + along[1] * t];
-    box(roomGroup, mat(d.trim, { rough: 0.6 }),
-      Math.min(p0[0], p1[0]), 0, Math.min(p0[1], p1[1]), Math.max(p0[0], p1[0]), h.top - 0.5, Math.max(p0[1], p1[1]));
   }
 
   // Sun through the first window (or from the south), a ceiling lamp for fill.

@@ -1,6 +1,6 @@
 {
   "room_file": "room_layout.json",
-  "saved": "2026-09-27T00:54:02.850Z",
+  "saved": "2026-09-27T00:58:48.178Z",
   "units": "feet_inches",
   "coordinate_system": {
     "origin": "southwest_corner",
@@ -22,96 +22,95 @@
       "file": "rugs/8x10/arden_8x10_low_loop_oatmeal_rug.json",
       "name": "Arden 8'x10' Low Loop Rug",
       "x": "0' 0\"",
-      "y": "4' 2\"",
+      "y": "2' 11 1/2\"",
       "rotation": 0,
       "front_faces": "north",
       "center": {
         "x": "4' 0\"",
-        "y": "9' 2\""
+        "y": "7' 11 1/2\""
       }
     },
     "article/frances_36_bookcase_storage_walnut": {
       "file": "furniture/article/frances_36_bookcase_storage_walnut.json",
       "name": "Frances 36-inch Bookcase with Storage - Walnut",
       "x": "10' 6\"",
-      "y": "0' 0\"",
+      "y": "9' 8\"",
       "rotation": 270,
       "front_faces": "west",
       "center": {
         "x": "9' 8\"",
-        "y": "1' 6\""
+        "y": "11' 2\""
       }
     },
     "article/frances_36_bookcase_storage_walnut#2": {
       "file": "furniture/article/frances_36_bookcase_storage_walnut.json",
       "name": "Frances 36-inch Bookcase with Storage - Walnut",
-      "x": "0' 0\"",
-      "y": "3' 0\"",
-      "rotation": 90,
-      "front_faces": "east",
+      "x": "6' 8\"",
+      "y": "16' 6\"",
+      "rotation": 180,
+      "front_faces": "south",
       "center": {
-        "x": "0' 10\"",
-        "y": "1' 6\""
+        "x": "5' 2\"",
+        "y": "15' 8\""
       }
     },
     "room_and_board/eos_42_swivel_chair": {
       "file": "furniture/room_and_board/eos_42_swivel_chair.json",
       "name": "Eos 42-inch Swivel Chair",
-      "x": "3' 8\"",
-      "y": "0' 0\"",
-      "rotation": 0,
-      "front_faces": "north",
+      "x": "11' 11/16\"",
+      "y": "14' 7\"",
+      "rotation": 225,
       "center": {
-        "x": "5' 5\"",
-        "y": "1' 9\""
+        "x": "8' 7\"",
+        "y": "14' 7\""
       }
     },
     "room_and_board/hudson_dresser": {
       "file": "furniture/room_and_board/hudson_dresser.json",
       "name": "Hudson 72w 20d 33h Six-Drawer Dresser",
-      "x": "10' 6\"",
-      "y": "16' 6\"",
-      "rotation": 180,
-      "front_faces": "south",
+      "x": "2' 2\"",
+      "y": "0' 0\"",
+      "rotation": 0,
+      "front_faces": "north",
       "center": {
-        "x": "7' 6\"",
-        "y": "15' 8\""
+        "x": "5' 2\"",
+        "y": "0' 10\""
       }
     },
     "room_and_board/hudson_king_bed": {
       "file": "furniture/room_and_board/hudson_king_bed.json",
       "name": "Hudson King Bed",
       "x": "0' 0\"",
-      "y": "12' 7 1/2\"",
+      "y": "11' 4\"",
       "rotation": 90,
       "front_faces": "east",
       "center": {
         "x": "3' 6 1/2\"",
-        "y": "9' 4\""
+        "y": "8' 1/2\""
       }
     },
     "room_and_board/hudson_two_drawer_nightstand": {
       "file": "furniture/room_and_board/hudson_two_drawer_nightstand.json",
       "name": "Hudson 26w 20d 22h Two-Drawer Nightstand",
       "x": "0' 0\"",
-      "y": "6' 1/2\"",
+      "y": "4' 9\"",
       "rotation": 90,
       "front_faces": "east",
       "center": {
         "x": "0' 10\"",
-        "y": "4' 11 1/2\""
+        "y": "3' 8\""
       }
     },
     "room_and_board/hudson_two_drawer_nightstand#2": {
       "file": "furniture/room_and_board/hudson_two_drawer_nightstand.json",
       "name": "Hudson 26w 20d 22h Two-Drawer Nightstand",
-      "x": "0' 4\"",
-      "y": "15' 2\"",
+      "x": "0' 0\"",
+      "y": "13' 6\"",
       "rotation": 90,
       "front_faces": "east",
       "center": {
-        "x": "1' 2\"",
-        "y": "14' 1\""
+        "x": "0' 10\"",
+        "y": "12' 5\""
       }
     }
   },
