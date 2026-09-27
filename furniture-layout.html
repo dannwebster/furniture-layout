@@ -780,19 +780,36 @@ function setFromRoomOrigin(it, rx, ry, rot) {
   it.x = rx - ox;
   it.y = (state.room.length - ry) - oy;
 }
+// Footprint as a convex polygon: the corners, or for round pieces a polygon just outside their ellipse.
+const ELLIPSE_SIDES = 48;
+function outline(it) {
+  if (!it.round) return corners(it);
+  const k = 1 / Math.cos(Math.PI / ELLIPSE_SIDES); // push vertices out so the edges wrap the ellipse
+  const a = it.width / 2 * k, b = it.depth / 2 * k;
+  return Array.from({ length: ELLIPSE_SIDES }, (_, i) => {
+    const t = (i + 0.5) * 2 * Math.PI / ELLIPSE_SIDES;
+    return localToScreen(it, a * Math.cos(t), b * Math.sin(t));
+  });
+}
 function halfExtents(it) {
   const c = Math.abs(Math.cos(rad(it.rot))), s = Math.abs(Math.sin(rad(it.rot)));
-  return { hx: it.width / 2 * c + it.depth / 2 * s, hy: it.width / 2 * s + it.depth / 2 * c };
+  const a = it.width / 2, b = it.depth / 2;
+  // A rotated ellipse's extents are exact; a rectangle's come from its corners.
+  if (it.round) return { hx: Math.hypot(a * c, b * s), hy: Math.hypot(a * s, b * c) };
+  return { hx: a * c + b * s, hy: a * s + b * c };
 }
 function bbox(it) {
   const { hx, hy } = halfExtents(it);
   return { minX: it.x - hx, maxX: it.x + hx, minY: it.y - hy, maxY: it.y + hy };
 }
+// Separating-axis test over every edge of both outlines; pieces that only touch don't overlap.
 function overlaps(a, b) {
-  const A = corners(a), B = corners(b);
+  const A = outline(a), B = outline(b);
   for (const P of [A, B]) {
-    for (let k = 0; k < 2; k++) {
-      const nx = -(P[k + 1][1] - P[k][1]), ny = P[k + 1][0] - P[k][0], len = Math.hypot(nx, ny);
+    for (let k = 0; k < P.length; k++) {
+      const q = P[(k + 1) % P.length];
+      const nx = -(q[1] - P[k][1]), ny = q[0] - P[k][0], len = Math.hypot(nx, ny);
+      if (len < 1e-9) continue;
       const proj = pts => pts.map(([x, y]) => (x * nx + y * ny) / len);
       const pa = proj(A), pb = proj(B);
       if (Math.max(...pa) <= Math.min(...pb) + EPS || Math.max(...pb) <= Math.min(...pa) + EPS) return false;
@@ -801,7 +818,8 @@ function overlaps(a, b) {
   return true;
 }
 function outsideRoom(it) {
-  return corners(it).some(([x, y]) => x < -EPS || y < -EPS || x > state.room.width + EPS || y > state.room.length + EPS);
+  const b = bbox(it);
+  return b.minX < -EPS || b.minY < -EPS || b.maxX > state.room.width + EPS || b.maxY > state.room.length + EPS;
 }
 
 // Opening geometry in screen coordinates: its two ends on the wall and the inward normal.

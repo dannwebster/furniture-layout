@@ -1,6 +1,6 @@
 {
   "room_file": "room_layout.json",
-  "saved": "2026-09-27T00:58:48.178Z",
+  "saved": "2026-09-27T01:10:17.973Z",
   "units": "feet_inches",
   "coordinate_system": {
     "origin": "southwest_corner",
@@ -10,11 +10,11 @@
     "rotation": "degrees clockwise viewed from above; 0 = front of the piece faces north (+y)"
   },
   "counts": {
-    "article/frances_36_bookcase_storage_walnut": 2,
     "room_and_board/eos_42_swivel_chair": 1,
     "room_and_board/hudson_dresser": 1,
     "room_and_board/hudson_king_bed": 1,
     "room_and_board/hudson_two_drawer_nightstand": 2,
+    "room_and_board/woodwind_86h_two_door_bookcase": 2,
     "8x10/arden_8x10_low_loop_oatmeal_rug": 1
   },
   "placements": {
@@ -30,39 +30,15 @@
         "y": "7' 11 1/2\""
       }
     },
-    "article/frances_36_bookcase_storage_walnut": {
-      "file": "furniture/article/frances_36_bookcase_storage_walnut.json",
-      "name": "Frances 36-inch Bookcase with Storage - Walnut",
-      "x": "10' 6\"",
-      "y": "9' 8\"",
-      "rotation": 270,
-      "front_faces": "west",
-      "center": {
-        "x": "9' 8\"",
-        "y": "11' 2\""
-      }
-    },
-    "article/frances_36_bookcase_storage_walnut#2": {
-      "file": "furniture/article/frances_36_bookcase_storage_walnut.json",
-      "name": "Frances 36-inch Bookcase with Storage - Walnut",
-      "x": "6' 8\"",
-      "y": "16' 6\"",
-      "rotation": 180,
-      "front_faces": "south",
-      "center": {
-        "x": "5' 2\"",
-        "y": "15' 8\""
-      }
-    },
     "room_and_board/eos_42_swivel_chair": {
       "file": "furniture/room_and_board/eos_42_swivel_chair.json",
       "name": "Eos 42-inch Swivel Chair",
-      "x": "11' 11/16\"",
-      "y": "14' 7\"",
+      "x": "10' 6 11/16\"",
+      "y": "14' 5\"",
       "rotation": 225,
       "center": {
-        "x": "8' 7\"",
-        "y": "14' 7\""
+        "x": "8' 1\"",
+        "y": "14' 5\""
       }
     },
     "room_and_board/hudson_dresser": {
@@ -112,15 +88,39 @@
         "x": "0' 10\"",
         "y": "12' 5\""
       }
+    },
+    "room_and_board/woodwind_86h_two_door_bookcase": {
+      "file": "furniture/room_and_board/woodwind_86h_two_door_bookcase.json",
+      "name": "Woodwind 32w 17d 86h Two-Door Bookcase",
+      "x": "10' 6\"",
+      "y": "10' 0\"",
+      "rotation": 270,
+      "front_faces": "west",
+      "center": {
+        "x": "9' 9 1/2\"",
+        "y": "11' 4\""
+      }
+    },
+    "room_and_board/woodwind_86h_two_door_bookcase#2": {
+      "file": "furniture/room_and_board/woodwind_86h_two_door_bookcase.json",
+      "name": "Woodwind 32w 17d 86h Two-Door Bookcase",
+      "x": "6' 4\"",
+      "y": "16' 6\"",
+      "rotation": 180,
+      "front_faces": "south",
+      "center": {
+        "x": "5' 0\"",
+        "y": "15' 9 1/2\""
+      }
     }
   },
   "not_placed": [
     "article/cooper_1_drawer_nightstand_walnut",
     "article/cooper_6_drawer_dresser_walnut",
     "article/cooper_king_low_profile_bed_walnut",
+    "article/frances_36_bookcase_storage_walnut",
     "article/lenia_king_panel_bed_walnut",
     "room_and_board/arro_26_nightstand_walnut_marbled_black",
-    "room_and_board/woodwind_86h_two_door_bookcase",
     "8x10/hastings_8x10_ivory_taupe_rug",
     "8x10/kayseri_8x10_moss_rug",
     "8x10/nomad_8x10_olive_rug",
