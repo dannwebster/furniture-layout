@@ -20,6 +20,7 @@ const MAX_REF_BYTES = 12 * 1024 * 1024;        // scraped renders reach 4000px; 
 // Best appearance reference first. "dimensions" is a line drawing, so it never helps here.
 const KIND_ORDER = ['product', 'product-alt', 'room', 'gallery', 'detail'];
 const MIME_BY_EXT = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
+const EXT_BY_MIME = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 const ASPECTS = [[1, 1], [2, 3], [3, 2], [3, 4], [4, 3], [4, 5], [5, 4], [9, 16], [16, 9]];
 const COMPASS = ['north', 'north-north-east', 'north-east', 'east-north-east', 'east', 'east-south-east',
   'south-east', 'south-south-east', 'south', 'south-south-west', 'south-west', 'west-south-west',
@@ -308,7 +309,9 @@ async function gemini({ model, prompt, images, pov, env }) {
       ...images.map(i => ({ type: 'image', mime_type: i.mime, data: i.data.toString('base64') })),
     ],
     response_format: {
-      type: 'image', mime_type: 'image/png',
+      // JPEG is the only output type this endpoint accepts ("Supported values: 'image/jpeg'"), which
+      // is no loss for a photograph.
+      type: 'image', mime_type: 'image/jpeg',
       aspect_ratio: nearestAspect(pov.width, pov.height),
       image_size: Math.max(pov.width, pov.height) > 1200 ? '2K' : '1K',
     },
@@ -318,7 +321,7 @@ async function gemini({ model, prompt, images, pov, env }) {
     throw new Error(`${model} returned no image${res.output_text ? `: ${res.output_text.slice(0, 300)}` : ''}`);
   }
   return {
-    images: [{ mime: out.mime_type || 'image/png', data: Buffer.from(out.data, 'base64') }],
+    images: [{ mime: out.mime_type || 'image/jpeg', data: Buffer.from(out.data, 'base64') }],
     usage: res.usage || null,
   };
 }
@@ -496,8 +499,9 @@ export async function renderView(request, ctx) {
     throw err;
   }
   times.image = clock() - t;
+  // Named for what the model actually returned: providers differ on the format they'll emit.
   for (const [i, img] of result.images.entries()) {
-    const file = i ? `render-${i + 1}.png` : 'render.png';
+    const file = `render${i ? `-${i + 1}` : ''}.${EXT_BY_MIME[img.mime] || 'png'}`;
     files.renders.push(file);
     await ctx.writeOutput(`${dir}/${file}`, img.data);
   }
