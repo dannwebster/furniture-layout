@@ -32,6 +32,7 @@ const fsp = fs.promises;
 const path = require('path');
 const zlib = require('zlib');
 const { spawn } = require('child_process');
+const { pathToFileURL } = require('url');
 
 const USAGE = `Usage: node server.js [data-dir] [options]
 
@@ -50,6 +51,10 @@ Options:
 
 Environment: PORT (default 3000), HOST (default 127.0.0.1), DATA_DIR, OUTPUT_DIR.
 Command-line options win over the environment.
+
+While working on the program itself, "npm run dev" runs this file under node --watch-path, so editing
+server.js or render.mjs restarts it. The two HTML pages need no restart either way: a change to them
+is broadcast on the event stream and they reload themselves.
 
 Rendering the 3D view as a photo needs API keys, read from .env in the data folder or the project
 around it, else beside package.json (a real environment variable wins over all of them):
@@ -126,6 +131,7 @@ function loadEnv(...dirs) {
 const APP_DIR = __dirname;
 const PAGE_FILE = 'furniture-layout.html';
 const VIEW3D_FILE = 'room3d.html';
+const RENDER_FILE = 'render.mjs'; // beside this file; imported on demand, see loadRenderer()
 const ROOM_FILE = 'room_layout.json';
 const COLORS_FILE = 'material_colors.json';
 const PRODUCT_DIRS = ['furniture', 'rugs']; // under DATA_DIR; one JSON file per product, any depth
@@ -135,9 +141,12 @@ const IMAGE_TYPES = { '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'ima
 const MAX_BODY = 1024 * 1024;
 const MAX_EXPORT = 50 * 1024 * 1024; // a plan PNG runs to a few MB
 // Exports are written straight into OUTPUT_DIR, so only the page's own timestamped names are accepted.
-const EXPORT_NAME = /^layout-\d{8}T\d{6}Z\.(json|png)$/;
-const ZIP_NAME = /^layout-(site-)?\d{8}T\d{6}Z\.zip$/;
+// 2026-09-26T14-30-12Z; the older compact 20260926T143012Z is still accepted, so earlier renders export.
+const STAMP = String.raw`(?:\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z|\d{8}T\d{6}Z)`;
+const EXPORT_NAME = new RegExp(`^layout-${STAMP}\\.(json|png)$`);
+const ZIP_NAME = new RegExp(`^layout-(site-)?${STAMP}\\.zip$`);
 const RENDERS_SUBDIR = 'renders'; // under OUTPUT_DIR; one folder per render, named by timestamp
+const RENDER_NAME = new RegExp(`^render-${STAMP}$`); // as render.mjs names them, and all an export may name
 
 // A data project that keeps its input in data/ (beside the output/ we write) can be named either
 // way: given the project root, descend into data/ when that's where the room file actually is.
@@ -226,7 +235,9 @@ async function readRenders() {
   try { names = await fsp.readdir(RENDERS_DIR, { withFileTypes: true }); }
   catch (err) { if (err.code === 'ENOENT') return []; throw err; }
   const metas = [];
-  for (const e of names.filter(e => e.isDirectory()).sort((a, b) => b.name.localeCompare(a.name))) {
+  // By digits alone, so the older compact names sort in time order among the hyphenated ones.
+  const key = name => name.replace(/\D/g, '');
+  for (const e of names.filter(e => e.isDirectory()).sort((a, b) => key(b.name).localeCompare(key(a.name)))) {
     try { metas.push(JSON.parse(await fsp.readFile(path.join(RENDERS_DIR, e.name, 'meta.json'), 'utf8'))); }
     catch { /* a render still being written, or hand-made folder */ }
   }
@@ -344,6 +355,17 @@ async function sendImage(res, root, rel) {
   catch (err) { if (err.code === 'ENOENT') return send(res, 404, 'Not found'); throw err; }
 }
 
+// render.mjs is loaded on demand — the SDKs it pulls in are only needed once someone renders, and it's
+// ESM from this CommonJS file. The loader would then cache it for the life of the process, so the import
+// is keyed on the file's mtime: editing the brief or a provider adapter takes effect on the next render
+// with no restart. Unchanged, the same module instance is reused.
+function loadRenderer() {
+  const file = path.join(APP_DIR, RENDER_FILE);
+  let stamp = '';
+  try { stamp = String(fs.statSync(file).mtimeMs); } catch { /* let import() report a missing file */ }
+  return import(`${pathToFileURL(file).href}?v=${stamp}`);
+}
+
 // What the render panel may ask for: a provider needs its key, and the optional Claude passes need theirs.
 const renderConfig = () => ({
   providers: { gemini: !!process.env.GEMINI_API_KEY, openai: !!process.env.OPENAI_API_KEY },
@@ -391,9 +413,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/renders') {
       return sendJson(res, { renders: await readRenders() });
     }
+    if (req.method === 'POST' && url.pathname === '/api/export-render') {
+      const content = url.searchParams.get('content');
+      if (content !== 'prompt' && content !== 'zip') return send(res, 400, 'content must be "prompt" or "zip"');
+      return sendJson(res, await exportRender(url.searchParams.get('name') || '', content));
+    }
     if (req.method === 'POST' && url.pathname === '/api/render') {
-      // Loaded on demand: the SDKs it pulls in are only needed once someone renders, and it's ESM.
-      const { renderView } = await import('./render.mjs');
+      const { renderView } = await loadRenderer();
       const request = parseJson((await readBody(req, MAX_EXPORT)).toString('utf8'));
       const meta = await renderView(request, {
         dataDir: DATA_DIR, photosDir: PHOTOS_DIR, photoManifest: PHOTO_MANIFEST,
@@ -513,16 +539,18 @@ function makeZip(entries) {
   return Buffer.concat([...locals, dir, end]);
 }
 
-// Shared by Export zip and Export site: the main file plus the photos it refers to. Photo URLs are the
-// relative "photos/..." ones readPhotos() hands out, so they keep the same paths inside the zip.
+// Shared by Export zip, Export site and a render's Export zip: the main file (or files) plus the photos
+// they refer to. Photo URLs are the relative "photos/..." ones readPhotos() and a render's meta.json
+// hand out, so they keep the same paths inside the zip.
 async function writeExportZip(name, main, photoUrls) {
+  const mains = Array.isArray(main) ? main : [main];
   const photos = await Promise.all([...new Set(photoUrls)].map(async u => {
     const rel = u.split('/').map(decodeURIComponent);
     try { return { name: rel.join('/'), data: await fsp.readFile(path.join(OUTPUT_DIR, ...rel)) }; }
     catch (err) { if (err.code !== 'ENOENT') throw err; return null; }
   }));
-  const entries = [main, ...photos.filter(Boolean)];
-  return { path: await writeOutput(name, makeZip(entries)), photos: entries.length - 1 };
+  const kept = photos.filter(Boolean);
+  return { path: await writeOutput(name, makeZip([...mains, ...kept])), photos: kept.length };
 }
 
 // content=data: the page's Export data JSON (request body) and photos of the products listed in it;
@@ -536,6 +564,38 @@ async function exportZip(name, content, body) {
   }
   const site = await buildPage(body.toString('utf8'));
   return writeExportZip(name, { name: 'index.html', data: Buffer.from(site.page, 'utf8') }, Object.values(site.photos));
+}
+
+// The 3D view's Export prompt / Export zip: lift one render out of renders/<name>/ into OUTPUT_DIR,
+// beside the layout exports. content=prompt writes the brief that was actually sent (Claude's rewrite
+// when there is one) as <name>-prompt.txt; content=zip bundles the whole render — both briefs, the
+// geometry and mask passes, the picture, meta.json, and the product photos it used as references.
+async function exportRender(name, content) {
+  if (!RENDER_NAME.test(name)) throw badRequest(`bad render name "${name}"`);
+  const dir = path.join(RENDERS_DIR, name);
+  const read = async file => {
+    try { return await fsp.readFile(path.join(dir, file)); }
+    catch (err) { if (err.code === 'ENOENT') return null; throw err; }
+  };
+  const metaText = await read('meta.json');
+  if (!metaText) throw badRequest(`no render called "${name}"`);
+  const meta = parseJson(metaText.toString('utf8'));
+  const files = meta.files || {};
+  const brief = files.promptClaude || files.prompt;
+  if (content === 'prompt') {
+    const text = brief && await read(brief);
+    if (!text) throw badRequest(`${name} has no prompt on disk`);
+    return { path: await writeOutput(`${name}-prompt.txt`, text), from: brief };
+  }
+  const wanted = [files.prompt, files.promptClaude, files.pov, files.mask, ...(files.renders || []), 'meta.json'];
+  const entries = [];
+  for (const file of wanted.filter(Boolean)) {
+    const data = await read(file);
+    if (data) entries.push({ name: file, data });
+  }
+  const photos = (meta.references || []).map(r => r.photo).filter(u => typeof u === 'string' && u.startsWith('photos/'));
+  const zip = await writeExportZip(`${name}.zip`, entries, photos);
+  return { ...zip, files: entries.length };
 }
 
 function serve() {

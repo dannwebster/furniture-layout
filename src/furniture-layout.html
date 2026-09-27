@@ -1419,9 +1419,9 @@ window.addEventListener('pagehide', () => {
 
 // ==== Export ====
 // Export data / Export image write layout-<timestamp>.json|png to the output folder through the server
-// (a standalone page has none, so it downloads them). The timestamp is ISO-8601 basic UTC,
-// e.g. 20260926T143012Z: the extended form's colons aren't allowed in Windows file names.
-const exportStamp = () => new Date().toISOString().replace(/[-:]|\.\d+/g, '');
+// (a standalone page has none, so it downloads them). The timestamp is ISO-8601 UTC with the time's
+// colons, which aren't allowed in Windows file names, as hyphens: e.g. 2026-09-26T14-30-12Z.
+const exportStamp = () => new Date().toISOString().replace(/:/g, '-').replace(/\.\d+Z$/, 'Z');
 
 function buildExport() {
   const sums = {};

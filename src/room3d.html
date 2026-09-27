@@ -14,15 +14,16 @@
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(4px);
   }
   #hud h1 { font-size: 14px; margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
-  #hudToggle {
-    margin-left: auto; font: 11px/1 system-ui, sans-serif; padding: 3px 6px; cursor: pointer;
-    border: 1px solid var(--line); border-radius: 5px; background: #faf8f5; color: var(--muted);
+  /* Hide/Show button in a panel's heading (collapsible() below). */
+  .panelToggle, #renderPanel button.panelToggle {
+    width: auto; margin: 0 0 0 auto; font: 11px/1 system-ui, sans-serif; padding: 3px 6px; cursor: pointer;
+    text-transform: none; letter-spacing: 0; border: 1px solid var(--line); border-radius: 5px; background: #faf8f5; color: var(--muted);
   }
-  #hudToggle:hover { color: var(--ink); }
+  .panelToggle:hover, #renderPanel button.panelToggle:hover { color: var(--ink); }
   #hud .muted { color: var(--muted); }
   #hud .keys { margin-top: 6px; line-height: 1.9; color: var(--muted); }
   #hud .warn { margin-top: 6px; color: var(--danger); }
-  #hud.hidden .keys, #hud.hidden .warn { display: none; }
+  #hud.collapsed .keys, #hud.collapsed .warn { display: none; }
   kbd {
     font: 11px ui-monospace, Consolas, monospace; padding: 1px 5px; border: 1px solid var(--line);
     border-bottom-width: 2px; border-radius: 4px; background: #faf8f5; color: var(--ink);
@@ -52,7 +53,12 @@
     padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
     backdrop-filter: blur(4px);
   }
-  #renderPanel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  #renderPanel h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  #renderPanel.collapsed > :not(h2) { display: none; }
+  #renderPanel.collapsed h2 { margin-bottom: 0; }
   #renderPanel label { display: block; margin-bottom: 6px; color: var(--muted); }
   #renderPanel label > span { display: block; }
   #renderPanel select, #renderPanel textarea, #renderPanel input[type=range] {
@@ -68,15 +74,21 @@
   }
   #renderPanel button.primary { background: #dfe7d6; }
   #renderPanel button:disabled { opacity: .5; cursor: default; }
+  #renderPanel .exports { display: flex; gap: 6px; }
+  #renderPanel .exports button { flex: 1; width: auto; }
   #renderPanel .status { margin-top: 8px; color: var(--muted); }
   #renderPanel .status.bad { color: var(--danger); }
   #renderPanel .findings { margin: 6px 0 0; padding-left: 16px; color: var(--danger); }
   #renderPanel .shots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  #renderPanel .shots img {
-    width: 56px; height: 38px; object-fit: cover; cursor: pointer;
+  #renderPanel .shots img, #renderPanel .shots .brief {
+    width: 56px; height: 38px; object-fit: cover; cursor: pointer; box-sizing: border-box;
     border: 1px solid var(--line); border-radius: 4px;
   }
-  #renderPanel .shots img.on { border-color: #7f8f6b; box-shadow: 0 0 0 2px #dfe7d6; }
+  /* A render that stopped at the brief, or failed: no picture, but its prompt is still worth exporting. */
+  #renderPanel .shots .brief {
+    display: grid; place-items: center; border-style: dashed; font-size: 10px; color: var(--muted);
+  }
+  #renderPanel .shots .on { border-color: #7f8f6b; box-shadow: 0 0 0 2px #dfe7d6; }
   #renderPanel .fade { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); }
 </style>
 <script type="importmap">
@@ -87,8 +99,11 @@
 </script>
 </head>
 <body>
+<!-- Drawn over the scene but under the panels below (later fixed elements paint on top). -->
+<div id="frameGuide" hidden></div>
+<div id="renderOverlay" hidden><img id="renderImage" alt="The latest render of this view"></div>
 <div id="hud">
-  <h1>3D view <button id="hudToggle" type="button" aria-expanded="true" title="Hide the controls (H)">Hide controls ▴</button></h1>
+  <h1>3D view <button id="hudToggle" class="panelToggle" type="button"></button></h1>
   <div class="muted" id="status">Waiting for the layout…</div>
   <div class="keys">
     Click the view to look around · <kbd>Esc</kbd> releases the mouse<br>
@@ -99,18 +114,22 @@
   </div>
   <div class="warn" id="unmapped" hidden></div>
 </div>
-<div id="frameGuide" hidden></div>
-<div id="renderOverlay" hidden><img id="renderImage" alt="The latest render of this view"></div>
 <div id="renderPanel" hidden>
-  <h2>Render this view</h2>
+  <h2>Render this view <button id="renderToggle" class="panelToggle" type="button"></button></h2>
   <label><span>Image model</span><select id="rProvider"></select></label>
   <label><span>Size</span><select id="rSize"></select></label>
   <label><span>Light</span><select id="rLight"></select></label>
   <label><span>Style</span><select id="rStyle"></select></label>
   <label><span>Notes</span><textarea id="rNotes" rows="2" placeholder="anything else about the shot"></textarea></label>
+  <div class="check"><input type="checkbox" id="rDecor"><label for="rDecor">Add tasteful decor</label></div>
   <div class="check"><input type="checkbox" id="rClaude"><label for="rClaude">Claude writes the prompt</label></div>
   <div class="check"><input type="checkbox" id="rAudit"><label for="rAudit">Claude checks the result</label></div>
+  <div class="check"><input type="checkbox" id="rPromptOnly"><label for="rPromptOnly">Brief only, no picture</label></div>
   <button id="rGo" class="primary">Render <kbd>P</kbd></button>
+  <div class="exports">
+    <button id="rExportPrompt" disabled title="Write the brief that was sent to the output folder">Export prompt</button>
+    <button id="rExportZip" disabled title="Zip the brief, both passes, the picture and the product photos it used">Export zip</button>
+  </div>
   <div class="status" id="rStatus"></div>
   <ul class="findings" id="rFindings" hidden></ul>
   <div class="fade" id="rFade" hidden>
@@ -857,8 +876,10 @@ function renderRequest() {
       lighting: $('#rLight').value,
       style: $('#rStyle').value,
       notes: $('#rNotes').value.trim(),
+      decor: $('#rDecor').checked,
       claudePrompt: $('#rClaude').checked,
       audit: $('#rAudit').checked,
+      promptOnly: $('#rPromptOnly').checked,
     },
   };
 }
@@ -880,7 +901,7 @@ const STAGE_TEXT = {
   claude: 'Claude is sharpening the brief…', generating: 'the image model is painting…',
   audit: 'Claude is checking the result…', saved: 'saved',
 };
-const renderUI = { busy: false, shots: [], shown: null, config: null };
+const renderUI = { busy: false, shots: [], shot: null, config: null };
 
 function renderStatus(text, bad = false) {
   const el = $('#rStatus');
@@ -902,46 +923,76 @@ function savePrefs() {
     localStorage.setItem(LS_RENDER, JSON.stringify({
       provider: $('#rProvider').value, size: $('#rSize').value,
       light: $('#rLight').selectedIndex, style: $('#rStyle').selectedIndex,
-      notes: $('#rNotes').value, claude: $('#rClaude').checked, audit: $('#rAudit').checked,
-      opacity: $('#rOpacity').value,
+      notes: $('#rNotes').value, decor: $('#rDecor').checked, claude: $('#rClaude').checked, audit: $('#rAudit').checked,
+      promptOnly: $('#rPromptOnly').checked, opacity: $('#rOpacity').value,
     }));
   } catch { /* storage unavailable */ }
 }
 
 const hasImage = shot => !!(shot && shot.urls && shot.urls.renders && shot.urls.renders.length);
 
-function showRender(shot) {
-  if (!hasImage(shot)) shot = null; // a render that failed has a folder and a brief, but no picture
-  renderUI.shown = shot;
-  const overlay = $('#renderOverlay'), img = $('#renderImage');
-  $('#rFade').hidden = !shot;
-  if (!shot) { overlay.hidden = true; img.removeAttribute('src'); $('#rFindings').hidden = true; return; }
-  img.src = `/${shot.urls.renders[0]}`;
-  img.style.opacity = String(Number($('#rOpacity').value) / 100);
-  layoutFrame();
-  overlay.hidden = false;
-  for (const el of $('#rShots').children) el.classList.toggle('on', el.dataset.name === shot.name);
-  const findings = $('#rFindings'), audit = shot.audit || [];
+// Selecting a shot is what the export buttons act on; a shot with a picture also fades over the view.
+function selectShot(shot) {
+  renderUI.shot = shot || null;
+  const overlay = $('#renderOverlay'), img = $('#renderImage'), image = hasImage(shot);
+  $('#rFade').hidden = !image;
+  if (image) {
+    img.src = `/${shot.urls.renders[0]}`;
+    img.style.opacity = String(Number($('#rOpacity').value) / 100);
+    layoutFrame();
+    overlay.hidden = false;
+  } else {
+    overlay.hidden = true;
+    img.removeAttribute('src');
+  }
+  for (const el of $('#rShots').children) el.classList.toggle('on', el.dataset.name === (shot && shot.name));
+  const findings = $('#rFindings'), audit = (shot && shot.audit) || [];
   findings.replaceChildren(...audit.map(text => {
     const li = document.createElement('li');
     li.textContent = text;
     return li;
   }));
   findings.hidden = !audit.length;
+  $('#rExportPrompt').disabled = $('#rExportZip').disabled = !shot;
 }
 
 function drawShots() {
   const strip = $('#rShots');
   strip.innerHTML = '';
   for (const shot of renderUI.shots.slice(0, 12)) {
-    if (!hasImage(shot)) continue;
-    const img = document.createElement('img');
-    img.src = `/${shot.urls.renders[0]}`;
-    img.dataset.name = shot.name;
-    img.title = `${new Date(shot.created).toLocaleString()} · ${shot.provider}\nClick to show, double-click to stand here again`;
-    img.addEventListener('click', () => showRender(shot === renderUI.shown ? null : shot));
-    img.addEventListener('dblclick', () => { setPose(shot.pov); showRender(shot); });
-    strip.append(img);
+    const image = hasImage(shot);
+    const tile = document.createElement(image ? 'img' : 'div');
+    if (image) tile.src = `/${shot.urls.renders[0]}`;
+    else { tile.className = 'brief'; tile.textContent = shot.error ? 'failed' : 'brief'; }
+    tile.dataset.name = shot.name;
+    tile.title = `${new Date(shot.created).toLocaleString()} · ${shot.provider}` +
+      (shot.error ? `\n${shot.error}` : '') +
+      '\nClick to select, double-click to stand here again';
+    tile.addEventListener('click', () => selectShot(shot === renderUI.shot ? null : shot));
+    tile.addEventListener('dblclick', () => { setPose(shot.pov); selectShot(shot); });
+    strip.append(tile);
+  }
+}
+
+// Export prompt / Export zip: the server lifts the selected render out of renders/<name>/ into the
+// output folder, beside the layout page's own exports.
+async function exportShot(content) {
+  const shot = renderUI.shot;
+  if (!shot || renderUI.busy) return;
+  const buttons = [$('#rExportPrompt'), $('#rExportZip')];
+  for (const b of buttons) b.disabled = true;
+  renderStatus(content === 'zip' ? 'zipping the render…' : 'writing the brief out…');
+  try {
+    const res = await fetch(`/api/export-render?name=${encodeURIComponent(shot.name)}&content=${content}`, { method: 'POST' });
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || `the server said ${res.status}`);
+    const out = JSON.parse(text);
+    const file = String(out.path).split(/[\\/]/).pop();
+    renderStatus(`saved ${file}` + (content === 'zip' ? ` · ${out.files} file(s) + ${out.photos} photo(s)` : ''));
+  } catch (err) {
+    renderStatus(err.message, true);
+  } finally {
+    for (const b of buttons) b.disabled = !renderUI.shot;
   }
 }
 
@@ -971,9 +1022,9 @@ async function doRender() {
     const meta = JSON.parse(text);
     renderUI.shots = [meta, ...renderUI.shots.filter(s => s.name !== meta.name)];
     drawShots();
-    showRender(meta);
+    selectShot(meta);
     const spent = Math.round((meta.times.total || 0) / 1000);
-    renderStatus(`done in ${spent}s · ${meta.references.length} photo(s)` +
+    renderStatus(`${hasImage(meta) ? 'done' : 'brief only'} in ${spent}s · ${meta.references.length} photo(s)` +
       (meta.missingPhotos.length ? ` · no photo for ${meta.missingPhotos.length}` : ''));
   } catch (err) {
     renderStatus(err.message, true);
@@ -994,11 +1045,13 @@ if (!STANDALONE) {
     if (prefs.light != null) $('#rLight').selectedIndex = prefs.light;
     if (prefs.style != null) $('#rStyle').selectedIndex = prefs.style;
     if (prefs.notes) $('#rNotes').value = prefs.notes;
+    $('#rDecor').checked = !!prefs.decor;
     $('#rClaude').checked = !!prefs.claude;
     $('#rAudit').checked = !!prefs.audit;
+    $('#rPromptOnly').checked = !!prefs.promptOnly;
     if (prefs.opacity != null) $('#rOpacity').value = prefs.opacity;
   }
-  for (const id of ['#rSize', '#rLight', '#rStyle', '#rNotes', '#rClaude', '#rAudit', '#rProvider']) {
+  for (const id of ['#rSize', '#rLight', '#rStyle', '#rNotes', '#rDecor', '#rClaude', '#rAudit', '#rPromptOnly', '#rProvider']) {
     $(id).addEventListener('change', () => { savePrefs(); if (id === '#rSize') layoutFrame(); });
   }
   $('#rOpacity').addEventListener('input', () => {
@@ -1006,6 +1059,8 @@ if (!STANDALONE) {
     savePrefs();
   });
   $('#rGo').addEventListener('click', doRender);
+  $('#rExportPrompt').addEventListener('click', () => exportShot('prompt'));
+  $('#rExportZip').addEventListener('click', () => exportShot('zip'));
   if (events) {
     events.addEventListener('render', e => {
       if (!renderUI.busy) return;
@@ -1027,8 +1082,9 @@ if (!STANDALONE) {
     $('#frameGuide').hidden = false;
     layoutFrame();
     if (!ready.length) {
-      $('#rGo').disabled = true;
-      renderStatus('No image model key: add GEMINI_API_KEY or OPENAI_API_KEY to a .env file in the data project.', true);
+      // Without an image key the brief is still worth making, and exporting.
+      $('#rPromptOnly').checked = true;
+      renderStatus('No image model key, so briefs only: add GEMINI_API_KEY or OPENAI_API_KEY to a .env file in the data project.', true);
     } else if (!config.claude) {
       $('#rClaude').disabled = $('#rAudit').disabled = true;
       $('#rClaude').checked = $('#rAudit').checked = false;
@@ -1039,22 +1095,29 @@ if (!STANDALONE) {
   addEventListener('resize', layoutFrame);
 }
 
-// ==== Controls legend ====
-// Collapsed with its button or H; remembered across popups.
-const LS_HUD = 'furnitureLayout3d.hudCollapsed';
-function setHudCollapsed(collapsed) {
-  $('#hud').classList.toggle('hidden', collapsed);
-  const btn = $('#hudToggle');
-  btn.textContent = collapsed ? 'Show controls ▾' : 'Hide controls ▴';
-  btn.title = `${collapsed ? 'Show' : 'Hide'} the controls (H)`;
-  btn.setAttribute('aria-expanded', String(!collapsed));
-  try { localStorage.setItem(LS_HUD, collapsed ? '1' : '0'); } catch { /* storage unavailable */ }
+// ==== Collapsible panels ====
+// The controls legend (also H) and the render panel fold down to their heading with the button in it;
+// each remembers its state across popups. Returns a toggle.
+function collapsible(panel, btn, what, lsKey, key = '') {
+  const set = collapsed => {
+    panel.classList.toggle('collapsed', collapsed);
+    btn.textContent = `${collapsed ? 'Show' : 'Hide'}${what === 'controls' ? ' controls' : ''} ${collapsed ? '▾' : '▴'}`;
+    btn.title = `${collapsed ? 'Show' : 'Hide'} the ${what}${key ? ` (${key})` : ''}`;
+    btn.setAttribute('aria-expanded', String(!collapsed));
+    try { localStorage.setItem(lsKey, collapsed ? '1' : '0'); } catch { /* storage unavailable */ }
+  };
+  const toggle = () => set(!panel.classList.contains('collapsed'));
+  btn.addEventListener('click', () => {
+    toggle();
+    btn.blur(); // so Space (up) doesn't press it again
+  });
+  let saved = false;
+  try { saved = localStorage.getItem(lsKey) === '1'; } catch { /* storage unavailable */ }
+  set(saved);
+  return toggle;
 }
-$('#hudToggle').addEventListener('click', e => {
-  setHudCollapsed(!$('#hud').classList.contains('hidden'));
-  e.currentTarget.blur(); // so Space (up) doesn't press it again
-});
-try { if (localStorage.getItem(LS_HUD) === '1') setHudCollapsed(true); } catch { /* storage unavailable */ }
+const toggleHud = collapsible($('#hud'), $('#hudToggle'), 'controls', 'furnitureLayout3d.hudCollapsed', 'H');
+collapsible($('#renderPanel'), $('#renderToggle'), 'render panel', 'furnitureLayout3d.renderCollapsed');
 
 // ==== Movement ====
 let bounds = null;
@@ -1064,16 +1127,16 @@ addEventListener('keydown', e => {
   keys.add(e.code);
   if (e.code === 'KeyR') goHome();
   if (e.code === 'KeyC' && ceilingMesh) { showCeiling = !showCeiling; ceilingMesh.visible = showCeiling; }
-  if (e.code === 'KeyH') setHudCollapsed(!$('#hud').classList.contains('hidden'));
+  if (e.code === 'KeyH') toggleHud();
   if (e.code === 'KeyP' && !STANDALONE) doRender();
-  if (e.code === 'KeyV') showRender(renderUI.shown ? null : renderUI.shots.find(hasImage));
+  if (e.code === 'KeyV') selectShot(hasImage(renderUI.shot) ? null : renderUI.shots.find(hasImage));
   // Hold B to see the render alone, for a straight before-and-after against the geometry.
-  if (e.code === 'KeyB' && renderUI.shown) $('#renderImage').style.opacity = '1';
+  if (e.code === 'KeyB' && hasImage(renderUI.shot)) $('#renderImage').style.opacity = '1';
   if (e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', e => {
   keys.delete(e.code);
-  if (e.code === 'KeyB' && renderUI.shown) $('#renderImage').style.opacity = String(Number($('#rOpacity').value) / 100);
+  if (e.code === 'KeyB' && hasImage(renderUI.shot)) $('#renderImage').style.opacity = String(Number($('#rOpacity').value) / 100);
 });
 addEventListener('blur', () => keys.clear());
 

@@ -27,7 +27,8 @@ const COMPASS = ['north', 'north-north-east', 'north-east', 'east-north-east', '
   'west', 'west-north-west', 'north-west', 'north-north-west'];
 
 // ---- Formatting ----
-const stamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+// ISO-8601 UTC with the time's colons (not allowed in Windows file names) as hyphens: 2026-09-26T14-30-12Z.
+const stamp = () => new Date().toISOString().replace(/:/g, '-').replace(/\.\d+Z$/, 'Z');
 const round = (n, places = 0) => Number(Number(n).toFixed(places));
 
 // Inches as people say them: 6 ft 1 in, 11 in, 9 ft.
@@ -133,6 +134,8 @@ async function collectReferences(items, ctx, perPiece) {
       refs.push({
         item: it.id, product, file: p.file, kind: p.kind, caption: p.caption || null,
         url: p.url || null, pageConfig: manifest.page_config || null,
+        // Where the server serves it from, the same relative form readPhotos() hands out.
+        photo: ['photos', ...product.split('/'), p.file].map(encodeURIComponent).join('/'),
         bytes: data.length, mime: mimeOf(p.file), data,
       });
     }
@@ -218,9 +221,17 @@ function buildPrompt({ request, images, refs, palette, docs }) {
     `IMAGE ${geometry} — GEOMETRY: an untextured 3D render of the room from the camera described below. It`,
     'defines the perspective, the framing, and the exact position, footprint, scale and orientation of',
     'every object. Reproduce it as a photograph: same camera, same walls, same window, same objects in',
-    'the same places at the same sizes. Do not add, remove, move, resize or re-orient anything. Do not',
-    'invent extra decor — no plants, art, lamps, books, throws, cushions or people beyond what is listed',
-    'below.',
+    'the same places at the same sizes. Do not add, remove, move, resize or re-orient anything.',
+    ...(options.decor ? [
+      'The one exception is decor: dress the room with tasteful, restrained styling that suits its',
+      'furniture and palette — a few plants, framed art on the walls, a lamp, books, a throw and cushions',
+      'on the bed, a vase or tray on a surface. Keep it light and lived-in, never cluttered. Decor may sit',
+      'on or against the listed pieces and hang on the walls, but it must not hide, replace or change any',
+      'listed piece, cover the window or doorways, or add furniture. No people.',
+    ] : [
+      'Do not invent extra decor — no plants, art, lamps, books, throws, cushions or people beyond what is',
+      'listed below.',
+    ]),
   ];
   if (mask) {
     out.push('',
@@ -263,11 +274,20 @@ Rewrite the description as tight, concrete photographic direction. Rules, all of
 - Keep the instruction that the geometry image fixes the camera, the room and the placement and size of everything, and keep the "do not draw" list.
 Reply with the prompt text only: no preamble, no markdown, no commentary.`;
 
+// With decor on, the brief itself asks for styling, so the rules make room for it instead of fighting it.
+const PROMPT_SYSTEM_DECOR = PROMPT_SYSTEM.replace(
+  '- Never add an object, material, or piece of decor that is not listed. Never drop a listed piece.',
+  '- Never add furniture, or a material, that is not listed. Never drop a listed piece. Keep the instruction ' +
+  'to add tasteful decor, and its limits, as given; do not name specific decor items the description does not.');
+
 const AUDIT_SYSTEM = `You check a generated interior photograph against the untextured 3D render it was supposed to match.
 
 The first image is the photograph, the second is the geometry it had to follow. Report only differences that matter for a furniture layout: a piece missing, added, moved, resized, re-oriented, or the wrong material; a window, doorway or wall in the wrong place; a camera that clearly moved.
 
 One finding per line, plain text, most serious first, at most eight lines. If the photograph follows the geometry, reply with exactly: ok`;
+
+const AUDIT_SYSTEM_DECOR = AUDIT_SYSTEM.replace('One finding per line',
+  'Decor was requested: plants, art, lamps, books, textiles and small objects that are not in the geometry are expected — only report decor that hides or replaces a piece, covers a window or doorway, or is really extra furniture.\n\nOne finding per line');
 
 async function claudeClient(env) {
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
@@ -299,10 +319,17 @@ function nearestAspect(width, height) {
   return `${best[0]}:${best[1]}`;
 }
 
+// The SDK's own retry is off: it re-sends one stored Request by cloning it per attempt, and a render
+// once failed there with "TypeError: unusable" from Request.clone(), which hid whatever went wrong first
+// (not reproduced locally: its retries survive 503s and dropped connections). Busy/overloaded answers
+// (408, 429, 5xx) are retried here with a fresh call instead; anything else surfaces as it is.
+const GEMINI_TRIES = 3;
+const retryable = err => err?.status === 408 || err?.status === 429 || err?.status >= 500;
+
 async function gemini({ model, prompt, images, pov, env }) {
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
-  const res = await ai.interactions.create({
+  const request = {
     model,
     input: [
       { type: 'text', text: prompt },
@@ -315,7 +342,19 @@ async function gemini({ model, prompt, images, pov, env }) {
       aspect_ratio: nearestAspect(pov.width, pov.height),
       image_size: Math.max(pov.width, pov.height) > 1200 ? '2K' : '1K',
     },
-  });
+  };
+  let res;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      res = await ai.interactions.create(request, { retries: { strategy: 'none' } });
+      break;
+    } catch (err) {
+      if (attempt >= GEMINI_TRIES || !retryable(err)) throw err;
+      const wait = 2000 * 2 ** (attempt - 1);
+      console.warn(`${model}: ${err.status} ${String(err.message || '').slice(0, 200)}; retrying in ${wait / 1000}s`);
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
   const out = res.output_image;
   if (!out || !out.data) {
     throw new Error(`${model} returned no image${res.output_text ? `: ${res.output_text.slice(0, 300)}` : ''}`);
@@ -326,17 +365,37 @@ async function gemini({ model, prompt, images, pov, env }) {
   };
 }
 
+// Optional parameters a model has turned down ("The model 'X' does not support the 'Y' parameter."), so
+// they're left out for it from then on. Image models differ (gpt-image-2.5-flare has no input_fidelity),
+// and a 400 is refused before anything is generated, so dropping the parameter and retrying costs nothing.
+const UNSUPPORTED = new Map(); // model → Set of parameter names
+const OPTIONAL = ['quality', 'input_fidelity'];
+
 async function openai({ model, prompt, images, pov, env }) {
   const mod = await import('openai');
   const client = new mod.default({ apiKey: env.OPENAI_API_KEY });
-  const files = await Promise.all(images.map((img, i) =>
+  const toFiles = () => Promise.all(images.map((img, i) =>
     mod.toFile(img.data, `${i + 1}-${img.role}${path.extname(img.file || '') || '.png'}`, { type: img.mime })));
-  const res = await client.images.edit({
-    model, image: files, prompt, n: 1,
-    size: `${pov.width}x${pov.height}`,
+  const optional = {
     quality: 'high',
-    input_fidelity: 'high',   // keep the reference products looking like themselves
-  });
+    input_fidelity: 'high',   // keep the reference products looking like themselves, where the model offers it
+  };
+  const skip = UNSUPPORTED.get(model) || new Set();
+  let res;
+  for (;;) {
+    const extra = Object.fromEntries(Object.entries(optional).filter(([k]) => !skip.has(k)));
+    try {
+      // Fresh file objects each try: an upload stream can only be read once.
+      res = await client.images.edit({ model, image: await toFiles(), prompt, n: 1, size: `${pov.width}x${pov.height}`, ...extra });
+      break;
+    } catch (err) {
+      const param = err?.status === 400 && /does not support the '([\w.]+)' parameter/i.exec(err.message || '')?.[1];
+      if (!param || !OPTIONAL.includes(param) || skip.has(param)) throw err;
+      skip.add(param);
+      UNSUPPORTED.set(model, skip);
+      console.warn(`${model} doesn't take ${param}; retrying without it`);
+    }
+  }
   const out = (res.data || []).filter(d => d.b64_json);
   if (!out.length) throw new Error(`${model} returned no image`);
   const mime = `image/${res.output_format || 'png'}`;
@@ -414,7 +473,8 @@ export async function renderView(request, ctx) {
   const provider = options.provider || env.RENDER_PROVIDER || 'gemini';
   if (!PROVIDERS[provider]) throw badRequest(`unknown image provider "${provider}"`);
   const missingKey = name => badRequest(`${name} is not set — add it to a .env file in ${ctx.dataDir} or beside package.json`);
-  if (!env[KEY_FOR[provider]]) throw missingKey(KEY_FOR[provider]);
+  // promptOnly stops after the brief, so it needs no image model and costs nothing.
+  if (!options.promptOnly && !env[KEY_FOR[provider]]) throw missingKey(KEY_FOR[provider]);
   if ((options.claudePrompt || options.audit) && !env.ANTHROPIC_API_KEY) throw missingKey('ANTHROPIC_API_KEY');
 
   const name = `render-${stamp()}`;
@@ -464,7 +524,7 @@ export async function renderView(request, ctx) {
     t = clock();
     try {
       const text = await claudeText({
-        env, model: ctx.promptModel, system: PROMPT_SYSTEM,
+        env, model: ctx.promptModel, system: options.decor ? PROMPT_SYSTEM_DECOR : PROMPT_SYSTEM,
         content: [imageBlock(images[0]), { type: 'text', text: draft }],
       });
       if (text) { final = text.endsWith('\n') ? text : text + '\n'; claudeUsed = true; }
@@ -480,6 +540,18 @@ export async function renderView(request, ctx) {
   if (maskImage) { files.mask = 'mask.png'; await ctx.writeOutput(`${dir}/mask.png`, maskImage.data); }
   await ctx.writeOutput(`${dir}/prompt.txt`, draft);
   if (claudeUsed) { files.promptClaude = 'prompt-claude.txt'; await ctx.writeOutput(`${dir}/prompt-claude.txt`, final); }
+
+  // Stopping here is the point of promptOnly: the brief and both passes are on disk to read, export or
+  // iterate on, with no image model involved.
+  if (options.promptOnly) {
+    times.total = clock() - started;
+    const meta = await saveMeta(ctx, dir, describe({
+      request, name, provider, model: null, promptModel: ctx.promptModel, refs, missing, options, files,
+      url, times, claudeUsed, audit: null, usage: null, error: null,
+    }));
+    broadcast('render', { stage: 'saved', name, url: null });
+    return meta;
+  }
 
   // 5. The picture. A failure still leaves a meta.json saying what was attempted and why it failed.
   broadcast('render', { stage: 'generating', name, provider });
@@ -513,7 +585,7 @@ export async function renderView(request, ctx) {
     t = clock();
     try {
       const text = await claudeText({
-        env, model: ctx.promptModel, system: AUDIT_SYSTEM,
+        env, model: ctx.promptModel, system: options.decor ? AUDIT_SYSTEM_DECOR : AUDIT_SYSTEM,
         content: [
           imageBlock({ mime: result.images[0].mime, data: result.images[0].data }),
           imageBlock(images[0]),
