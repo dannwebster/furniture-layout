@@ -85,7 +85,25 @@
   }
   .btnrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
   .muted { color: var(--muted); font-size: 12px; }
-  .group-title { font-weight: 600; margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
+  /* Collapsible rail panels: click the heading. */
+  aside .panel > h2 { cursor: pointer; user-select: none; }
+  aside .panel > h2::before { content: '▾'; display: inline-block; width: 12px; transition: transform .15s; }
+  aside .panel.collapsed > h2::before { transform: rotate(-90deg); }
+  aside .panel.collapsed > :not(h2) { display: none !important; }
+  /* Collapsible list groups (manufacturer, rug size). */
+  .group-title {
+    display: flex; align-items: baseline; gap: 4px; width: 100%; margin: 8px 0 2px; padding: 3px 2px;
+    border: none; border-radius: 4px; background: none; text-align: left; cursor: pointer;
+    font-weight: 600; font-size: 12px; color: var(--muted);
+  }
+  .group-title:hover { background: #f6f3ee; color: var(--ink); }
+  .group-title .chev::before { content: '▾'; display: inline-block; width: 12px; transition: transform .15s; }
+  .group.collapsed > .group-title .chev::before { transform: rotate(-90deg); }
+  .group-title .gname { flex: 1; }
+  .group-title .gcount { font-weight: 400; color: var(--accent); }
+  .group.collapsed > .group-body { display: none; }
+  .group .group { margin-left: 12px; }
+  .group .group > .group-title { margin-top: 2px; }
   .item {
     display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer;
   }
@@ -179,7 +197,7 @@
   .lsum { display: flex; justify-content: space-between; margin-top: 6px; padding: 8px 4px 0; border-top: 2px solid var(--ink);
           font-weight: 700; font-variant-numeric: tabular-nums; }
   .lnote { color: var(--muted); font-size: 12px; padding: 4px 4px 0; }
-  .piece .back { stroke: #2b1a0c; stroke-width: 4; vector-effect: non-scaling-stroke; }
+  .piece .back { fill: none; stroke: #2b1a0c; stroke-width: 4; vector-effect: non-scaling-stroke; }
   .piece .origin { fill: #2b1a0c; }
   .piece .detail { fill: #f5efe6; stroke: #b99772; stroke-width: 1; vector-effect: non-scaling-stroke; }
   .piece .hatch { fill: url(#hatch); display: none; pointer-events: none; }
@@ -203,6 +221,7 @@
   <span class="room" id="roomInfo"></span>
   <span class="spacer"></span>
   <span id="saveStatus"></span>
+  <button id="btn3d" class="primary" title="Open a walk-through 3D view of this layout in a new window">3D view</button>
 </header>
 
 <main>
@@ -226,7 +245,12 @@
 
     <section class="panel">
       <h2>Furniture</h2>
-      <div id="itemList"><div class="muted">No project folder loaded.</div></div>
+      <div id="itemList" class="plist" data-kind="furniture"><div class="muted">Not loaded yet.</div></div>
+    </section>
+
+    <section class="panel">
+      <h2>Rugs</h2>
+      <div id="rugList" class="plist" data-kind="rug"><div class="muted">Not loaded yet.</div></div>
     </section>
 
     <section class="panel" id="roomPanel" hidden>
@@ -261,7 +285,8 @@
         <kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd> nudge · <kbd>Shift</kbd> = 1'<br>
         <kbd>R</kbd> rotate 90° · <kbd>Shift</kbd>+<kbd>R</kbd> back 90°<br>
         <kbd>[</kbd> <kbd>]</kbd> rotate 15° · <kbd>Del</kbd> remove · <kbd>Esc</kbd> deselect<br>
-        Thick edge = back of the piece; dot = its back-left corner (the saved x/y).
+        Thick edge = back of the piece; dot = its back-left corner (the saved x/y).<br>
+        <b>3D view</b> (top right) opens a walk-through window that follows the plan live.
       </div>
     </section>
   </aside>
@@ -318,6 +343,10 @@
 
 const ROOM_FILE = 'room_layout.json';
 const FURNITURE_DIR = 'furniture';
+const RUG_DIR = 'rugs';
+const PRODUCT_DIRS = [FURNITURE_DIR, RUG_DIR];
+const COLORS_FILE = 'material_colors.json';
+const VIEW3D_CHANNEL = 'furniture-layout-3d';
 const PLACEMENTS_FILE = 'furniture_placements.json';
 const LS_PREFS = 'furnitureLayout.prefs';
 const EPS = 0.05;
@@ -385,13 +414,15 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 
 const state = {
   room: null,          // parsed room_layout.json, see parseRoom()
-  products: [],        // one per furniture file: { base, file, name, label, group, type, isRug, width, depth, height, price, initial }
+  orphans: {},         // saved placements for files not currently loaded; written back as-is
+  products: [],        // one per furniture/rug file: { base, file, name, label, group, type, isRug, width, depth, height, price, initial }
   items: [],           // pieces in the room: product fields + { id, n, label, x, y, rot, placed }
   selectedId: null,
   snap: 1,
   showGrid: true,
   rails: { left: { w: 320, collapsed: false }, right: { w: 290, collapsed: false } },
   ledgerOpen: true,
+  collapsed: new Set(), // keys of collapsed panels / list groups
   online: true,        // event stream to the server is connected
   loadError: null,
   saveError: null,
@@ -399,6 +430,7 @@ const state = {
   saving: false,
   dirty: false,
   problems: new Set(),
+  colors: null,        // material_colors.json, passed through to the 3D view
 };
 
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -487,20 +519,31 @@ function parseFurniture(doc, path) {
   if (!(width > 0 && depth > 0)) throw new Error('furniture.dimensions needs width and depth (or length)');
   const bb = isObj(doc.geometry) && isObj(doc.geometry.bounding_box) && isObj(doc.geometry.bounding_box.max) ? doc.geometry.bounding_box.max : {};
   const height = [d.height, bb.z, d.height_with_cushion, d.frame_height, d.pile_height].map(num).find(Number.isFinite);
-  const isRug = /rug|carpet|mat$/i.test(String(fu.type || ''));
-  // base id = path under furniture/ without extension, e.g. "room_and_board/hudson_dresser"
-  const base = path.replace(new RegExp(`^${FURNITURE_DIR}/`, 'i'), '').replace(/\.json$/i, '');
-  const label = fu.label || [fu.collection, fu.type].filter(Boolean).map(humanize).join(' ') || fu.name || humanize(base.split('/').pop());
+  // Anything under rugs/ is a rug; a rug-typed file elsewhere still counts as one.
+  const isRug = path.toLowerCase().startsWith(RUG_DIR + '/') || /rug|carpet|mat$/i.test(String(fu.type || ''));
+  // base id = path under furniture/ or rugs/ without extension, e.g. "room_and_board/hudson_dresser"
+  const base = path.replace(new RegExp(`^(${PRODUCT_DIRS.join('|')})/`, 'i'), '').replace(/\.json$/i, '');
+  // A "size" (e.g. rugs' "9'x12'", beds' "king") tells apart variants that share a collection and type.
+  // The plan and ledger show it; the list omits it (listLabel) because rugs are already grouped by size.
+  const size = fu.size ? String(fu.size).replace(/\s*x\s*/i, ' × ').replace(/^\p{Ll}/u, c => c.toUpperCase()) : null;
+  const listLabel = fu.label || [fu.collection, fu.type].filter(Boolean).map(humanize).join(' ') || fu.name || humanize(base.split('/').pop());
+  const label = fu.label || listLabel + (size ? ` ${size}` : '');
+  const parts = base.split('/');
   return {
     base, file: path,
+    folder: parts.length > 1 ? parts[0] : '', // first folder under furniture/ or rugs/ (rugs: the size)
+    size,
     name: fu.name || label,
+    listLabel: size && !fu.label ? listLabel : label,
     label,
     group: fu.manufacturer || humanize(base.includes('/') ? base.split('/')[0] : 'Furniture'),
     type: String(fu.type || ''), isRug,
+    round: /^(round|circle|oval|ellipse)$/i.test(String(fu.shape || '')), // drawn as an ellipse inscribed in width x depth
     width, depth, height: Number.isFinite(height) ? height * f : null,
     price: parsePrice(isObj(doc.metadata) ? doc.metadata.price : null),
     // Several files are alternatives for the same spot, so the count starts at 0 unless marked selected.
     initial: fu.selected === true ? Math.max(1, parseInt(fu.quantity, 10) || 1) : 0,
+    doc, // raw file, for the 3D view's shapes and materials
   };
 }
 
@@ -577,7 +620,7 @@ function fmtMoney(amount, currency = 'USD') {
   catch { return `${currency} ${amount.toFixed(2)}`; }
 }
 
-const isFurniturePath = p => p.toLowerCase().startsWith(FURNITURE_DIR + '/') && /\.json$/i.test(p);
+const isProductPath = p => PRODUCT_DIRS.some(d => p.toLowerCase().startsWith(d + '/')) && /\.json$/i.test(p);
 
 // Build the room + furniture from the project files sent by the server.
 function loadProject(files) {
@@ -585,9 +628,13 @@ function loadProject(files) {
   let room = null, placementsDoc = null;
   const products = [];
   const roomFile = files.find(f => f.path.toLowerCase() === ROOM_FILE);
+  const colorsFile = files.find(f => f.path.toLowerCase() === COLORS_FILE);
+  if (colorsFile) {
+    try { state.colors = JSON.parse(colorsFile.text); } catch (err) { errors.push(`${COLORS_FILE}: ${err.message}`); }
+  } else state.colors = null;
   for (const f of files) {
     const isRoom = f === roomFile, isPlacements = f.path.toLowerCase() === PLACEMENTS_FILE;
-    if (!isRoom && !isPlacements && !isFurniturePath(f.path)) continue;
+    if (!isRoom && !isPlacements && !isProductPath(f.path)) continue;
     let doc;
     try { doc = JSON.parse(f.text); } catch (err) { errors.push(`${f.path}: ${err.message}`); continue; }
     try {
@@ -606,9 +653,24 @@ function loadProject(files) {
   const sameRoom = state.room && state.room.width === room.width && state.room.length === room.length;
   const onScreen = sameRoom && state.products.length ? groupBy(state.items, it => it.base) : null;
   const saved = placementsDoc ? savedPlacements(placementsDoc) : null;
+  const known = new Set(products.map(p => p.base));
+  // A file moved to another folder keeps its placements: an unknown saved id is adopted by the one
+  // loaded product with the same file name (e.g. "room_and_board/nomad_9x12_olive_rug" -> "9x12/nomad_9x12_olive_rug").
+  const adopted = new Set();
+  if (saved) for (const oldBase of [...saved.keys()]) {
+    if (known.has(oldBase)) continue;
+    const stem = oldBase.split('/').pop();
+    const matches = products.filter(p => p.base.split('/').pop() === stem && !saved.has(p.base));
+    if (matches.length === 1) { saved.set(matches[0].base, saved.get(oldBase)); saved.delete(oldBase); adopted.add(oldBase); }
+  }
+  // Saved placements whose file isn't loaded right now (renamed, mid-edit, server can't see it) are
+  // kept and written back unchanged, so a missing file never erases its placement.
+  state.orphans = Object.fromEntries(Object.entries(placementsDoc && isObj(placementsDoc.placements) ? placementsDoc.placements : {})
+    .filter(([id]) => { const b = splitPieceId(id).base; return !known.has(b) && !adopted.has(b); }));
   const items = [];
   for (const p of products) {
-    const prev = onScreen ? onScreen.get(p.base) || [] : null;
+    // A product that wasn't on screen (e.g. its file just reappeared) falls back to the saved file.
+    const prev = onScreen && onScreen.has(p.base) ? onScreen.get(p.base) : null;
     const stored = saved ? saved.get(p.base) || [] : null;
     const count = prev ? prev.length : stored ? stored.length : p.initial;
     for (let n = 1; n <= count; n++) {
@@ -634,7 +696,8 @@ function loadProject(files) {
   for (const it of items.filter(i => !i.placed).sort((a, b) => isBed(b) - isBed(a))) placeNewPiece(it);
   renumber();
   state.selectedId = byId(selectedBefore) ? selectedBefore : null;
-  $('#sourceInfo').textContent = `Loaded ${ROOM_FILE} + ${products.length} furniture file(s)` +
+  const nRugs = products.filter(p => p.isRug).length;
+  $('#sourceInfo').textContent = `Loaded ${ROOM_FILE} + ${products.length - nRugs} furniture + ${nRugs} rug file(s)` +
     (placementsDoc ? ` + ${PLACEMENTS_FILE}` : '');
   buildList();
   buildScene();
@@ -870,15 +933,17 @@ function buildScene() {
     const g = el('g', { class: `piece${isChair ? ' chair' : ''}${it.isRug ? ' rug' : ''}`, 'data-id': it.id }, layer);
     el('title', {}, g).textContent = it.name;
     const w = it.width, d = it.depth;
-    const r = isChair ? Math.min(w, d) * 0.28 : 0.8;
-    el('rect', { class: 'body', x: -w / 2, y: -d / 2, width: w, height: d, rx: r }, g);
+    const corner = it.round ? { rx: w / 2, ry: d / 2 } : { rx: isChair ? Math.min(w, d) * 0.28 : 0.8 };
+    el('rect', { class: 'body', x: -w / 2, y: -d / 2, width: w, height: d, ...corner }, g);
     if (/bed/i.test(it.type)) {
       const pw = w / 2 - 6; // pillows at the back (headboard) end
       el('rect', { class: 'detail', x: -w / 2 + 4, y: d / 2 - 15, width: pw, height: 11, rx: 3 }, g);
       el('rect', { class: 'detail', x: 2, y: d / 2 - 15, width: pw, height: 11, rx: 3 }, g);
     }
-    el('rect', { class: 'hatch', x: -w / 2, y: -d / 2, width: w, height: d, rx: r }, g);
-    if (!it.isRug) el('line', { class: 'back', x1: -w / 2, y1: d / 2, x2: w / 2, y2: d / 2 }, g);
+    el('rect', { class: 'hatch', x: -w / 2, y: -d / 2, width: w, height: d, ...corner }, g);
+    // A round piece's back is the rear half of its outline, not a straight edge.
+    if (it.round) el('path', { class: 'back', d: `M ${-w / 2} 0 A ${w / 2} ${d / 2} 0 0 0 ${w / 2} 0` }, g);
+    else if (!it.isRug) el('line', { class: 'back', x1: -w / 2, y1: d / 2, x2: w / 2, y2: d / 2 }, g);
     el('circle', { class: 'origin', cx: -w / 2, cy: d / 2, r: 1.6 }, g);
     el('line', { class: 'rot-stem', x1: 0, y1: -d / 2, x2: 0, y2: -d / 2 - 9 }, g);
     el('circle', { class: 'rot-handle', cx: 0, cy: -d / 2 - 9, r: 3.2 }, g);
@@ -938,7 +1003,7 @@ function updateProblems() {
   box.hidden = !msgs.length;
   box.querySelector('ul').innerHTML = msgs.map(m => `<li>${escapeHtml(m)}</li>`).join('');
   const badBases = new Set(state.items.filter(it => bad.has(it.id)).map(it => it.base));
-  document.querySelectorAll('#itemList .item').forEach(row => row.classList.toggle('bad', badBases.has(row.dataset.base)));
+  document.querySelectorAll('.plist .item').forEach(row => row.classList.toggle('bad', badBases.has(row.dataset.base)));
 }
 
 function updateOverlay() {
@@ -991,35 +1056,86 @@ function renderRoomPanel() {
   $('#roomFacts').innerHTML = html;
 }
 
-// One row per furniture file with a count stepper. Built once per load; updateList() refreshes it
-// in place so the stepper keeps focus while you click it.
+// One row per product file with a count stepper. Built once per load; updateList() refreshes it
+// in place so the stepper keeps focus while you click it. Furniture (#itemList) is grouped by
+// manufacturer; rugs (#rugList) by size, then manufacturer. Every group collapses.
+const sizeLabel = p => /^\d+x\d+$/i.test(p.folder) ? p.folder.replace(/^(\d+)x(\d+)$/i, "$1' × $2'") : p.size || p.folder || 'Other sizes';
+
 function buildList() {
-  const list = $('#itemList');
-  if (!state.products.length) {
-    list.innerHTML = `<div class="muted">${state.room ? `No furniture found in ${FURNITURE_DIR}/.` : 'Not loaded yet.'}</div>`;
-    return;
+  for (const list of document.querySelectorAll('.plist')) {
+    const rugs = list.dataset.kind === 'rug';
+    const products = state.products.filter(p => p.isRug === rugs);
+    const dir = rugs ? RUG_DIR : FURNITURE_DIR;
+    if (!products.length) {
+      list.innerHTML = `<div class="muted">${state.room ? `No ${rugs ? 'rugs' : 'furniture'} found in ${dir}/.` : 'Not loaded yet.'}</div>`;
+      continue;
+    }
+    let html = '';
+    if (rugs) {
+      for (const [size, bySize] of groupBy(products, sizeLabel)) {
+        const key = `rug:${size}`;
+        html += groupHtml(key, size, productRows(bySize, key));
+      }
+    } else {
+      html = productRows(products, 'furniture');
+    }
+    list.innerHTML = html + '<div class="total"></div>';
   }
+  applyCollapsed();
+}
+
+function groupHtml(key, title, body) {
+  return `<div class="group" data-key="${escapeHtml(key)}">
+    <button type="button" class="group-title"><span class="chev"></span><span class="gname">${escapeHtml(title)}</span><span class="gcount"></span></button>
+    <div class="group-body">${body}</div></div>`;
+}
+
+function productRows(list, keyPrefix) {
   let html = '';
-  for (const [group, products] of groupBy(state.products, p => p.group)) {
-    html += `<div class="group-title">${escapeHtml(group)}</div>`;
+  for (const [group, products] of groupBy(list, p => p.group)) {
+    let rows = '';
     for (const p of products) {
       const tip = [p.name, p.file].filter(Boolean).join(' · ');
-      html += `<div class="item" data-base="${escapeHtml(p.base)}" title="${escapeHtml(tip)}">
+      rows += `<div class="item" data-base="${escapeHtml(p.base)}" title="${escapeHtml(tip)}">
         <span class="stepper">
           <button type="button" data-step="-1" aria-label="Fewer">−</button>
           <input type="number" min="0" max="${MAX_COUNT}" step="1" value="0" aria-label="How many in the room">
           <button type="button" data-step="1" aria-label="More">+</button>
         </span>
-        <span class="name">${escapeHtml(p.label)}</span>
-        <span class="dims">${fmtIn(p.width)} × ${fmtIn(p.depth)}</span></div>`;
+        <span class="name">${escapeHtml(p.isRug ? p.listLabel : p.label)}</span>
+        ${p.isRug ? '' /* the size group heading already says it */ : `<span class="dims">${fmtIn(p.width)} × ${fmtIn(p.depth)}</span>`}</div>`;
     }
+    html += groupHtml(`${keyPrefix}/${group}`, group, rows);
   }
-  list.innerHTML = html + '<div class="total" id="listTotal"></div>';
+  return html;
 }
+
+// ==== Collapsible sections (rail panels and list groups); collapsed keys are remembered ====
+function applyCollapsed() {
+  document.querySelectorAll('section.panel[data-key], .group[data-key]').forEach(el => {
+    el.classList.toggle('collapsed', state.collapsed.has(el.dataset.key));
+    const head = el.matches('.group') ? el.querySelector(':scope > .group-title') : el.querySelector(':scope > h2');
+    if (head) head.setAttribute('aria-expanded', String(!state.collapsed.has(el.dataset.key)));
+  });
+}
+function toggleCollapsed(key) {
+  if (state.collapsed.has(key)) state.collapsed.delete(key); else state.collapsed.add(key);
+  applyCollapsed();
+  savePrefs();
+}
+// Rail panels: the heading is the toggle. Keys come from the heading text ("panel:Furniture").
+document.querySelectorAll('aside section.panel > h2').forEach(h => {
+  const panel = h.parentElement;
+  panel.dataset.key = `panel:${h.textContent.trim()}`;
+  h.setAttribute('role', 'button');
+  h.tabIndex = 0;
+  h.addEventListener('click', () => toggleCollapsed(panel.dataset.key));
+  h.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(panel.dataset.key); } });
+});
 
 function updateList() {
   const sel = selected();
-  document.querySelectorAll('#itemList .item').forEach(row => {
+  document.querySelectorAll('.plist .item').forEach(row => {
     const count = piecesOf(row.dataset.base).length;
     const inp = row.querySelector('input');
     if (document.activeElement !== inp || Number(inp.value) !== count) inp.value = count;
@@ -1029,11 +1145,19 @@ function updateList() {
     row.classList.toggle('none', count === 0);
     row.classList.toggle('selected', !!sel && sel.base === row.dataset.base);
   });
-  const total = $('#listTotal');
-  if (total) {
-    const n = state.items.length;
-    total.innerHTML = n ? `${n} piece${n === 1 ? '' : 's'} in room` : '<span class="muted">Use + to add pieces to the room.</span>';
+  for (const list of document.querySelectorAll('.plist')) {
+    const total = list.querySelector('.total');
+    if (!total) continue;
+    const rugs = list.dataset.kind === 'rug';
+    const n = state.items.filter(it => it.isRug === rugs).length;
+    const noun = rugs ? (n === 1 ? 'rug' : 'rugs') : (n === 1 ? 'piece' : 'pieces');
+    total.innerHTML = n ? `${n} ${noun} in room` : `<span class="muted">Use + to add ${rugs ? 'a rug' : 'pieces'} to the room.</span>`;
   }
+  // Group headings show how many of their pieces are in the room (useful when collapsed).
+  document.querySelectorAll('.plist .group').forEach(g => {
+    const n = [...g.querySelectorAll('.item')].reduce((s, row) => s + piecesOf(row.dataset.base).length, 0);
+    g.querySelector(':scope > .group-title .gcount').textContent = n ? `${n} in room` : '';
+  });
   renderLedger();
 }
 
@@ -1125,7 +1249,7 @@ function renderEmpty() {
     card.innerHTML = `<h2 style="margin-top:0">Start the server</h2>
       <p>This page is served by the Node app. In the project folder run:</p>
       <p><kbd>npm start</kbd></p>
-      <p class="muted">It opens <b>http://127.0.0.1:3000/</b> and loads ${ROOM_FILE} and everything under ${FURNITURE_DIR}/.</p>`;
+      <p class="muted">It opens <b>http://127.0.0.1:3000/</b> and loads ${ROOM_FILE} and everything under ${FURNITURE_DIR}/ and ${RUG_DIR}/.</p>`;
   } else if (state.loadError) {
     card.innerHTML = `<h2 style="margin-top:0">Couldn't load the project</h2>
       <p>${escapeHtml(state.loadError)}</p><p class="muted">Fix the file and it will reload automatically.</p>`;
@@ -1148,6 +1272,7 @@ function refreshAll() {
   updateOverlay();
   renderInspector();
   updateSaveStatus();
+  postScene();
 }
 
 function refreshMoving(it) {
@@ -1155,6 +1280,7 @@ function refreshMoving(it) {
   updateProblems();
   updateOverlay();
   renderInspector();
+  postScene();
 }
 
 function select(id) {
@@ -1193,7 +1319,7 @@ function buildPlacements() {
       rotation: 'degrees clockwise viewed from above; 0 = front of the piece faces north (+y)',
     },
     counts: Object.fromEntries(state.products.map(p => [p.base, piecesOf(p.base).length]).filter(([, n]) => n > 0)),
-    placements,
+    placements: { ...placements, ...state.orphans },
     not_placed: state.products.filter(p => !piecesOf(p.base).length).map(p => p.base),
   };
 }
@@ -1334,24 +1460,28 @@ document.addEventListener('keydown', e => {
 });
 
 // Stepper buttons change the count; clicking the rest of a row selects that product's pieces in turn.
-$('#itemList').addEventListener('click', e => {
-  const row = e.target.closest('.item');
-  if (!row) return;
-  const base = row.dataset.base;
-  const step = e.target.closest('button[data-step]');
-  if (step) { setCount(base, piecesOf(base).length + Number(step.dataset.step)); return; }
-  if (e.target.closest('.stepper')) return;
-  const list = piecesOf(base);
-  if (!list.length) { setCount(base, 1); return; }
-  const cur = list.findIndex(it => it.id === state.selectedId);
-  select(list[(cur + 1) % list.length].id);
-});
-$('#itemList').addEventListener('change', e => {
-  const row = e.target.closest('.item');
-  if (row && e.target.matches('.stepper input')) setCount(row.dataset.base, Number(e.target.value));
-});
-$('#itemList').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && e.target.matches('.stepper input')) e.target.blur();
+document.querySelectorAll('.plist').forEach(plist => {
+  plist.addEventListener('click', e => {
+    const head = e.target.closest('.group-title');
+    if (head) { toggleCollapsed(head.parentElement.dataset.key); return; }
+    const row = e.target.closest('.item');
+    if (!row) return;
+    const base = row.dataset.base;
+    const step = e.target.closest('button[data-step]');
+    if (step) { setCount(base, piecesOf(base).length + Number(step.dataset.step)); return; }
+    if (e.target.closest('.stepper')) return;
+    const list = piecesOf(base);
+    if (!list.length) { setCount(base, 1); return; }
+    const cur = list.findIndex(it => it.id === state.selectedId);
+    select(list[(cur + 1) % list.length].id);
+  });
+  plist.addEventListener('change', e => {
+    const row = e.target.closest('.item');
+    if (row && e.target.matches('.stepper input')) setCount(row.dataset.base, Number(e.target.value));
+  });
+  plist.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.matches('.stepper input')) e.target.blur();
+  });
 });
 
 function bindOrigin(sel, axis) {
@@ -1389,7 +1519,8 @@ $('#btnReload').addEventListener('click', () => fetchProject(true));
 $('#saveStatus').addEventListener('click', e => { if (e.target.id === 'btnRetry') { state.saveError = null; commit(); } });
 
 function savePrefs() {
-  lsSet(LS_PREFS, JSON.stringify({ snap: state.snap, showGrid: state.showGrid, rails: state.rails, ledgerOpen: state.ledgerOpen }));
+  lsSet(LS_PREFS, JSON.stringify({ snap: state.snap, showGrid: state.showGrid, rails: state.rails, ledgerOpen: state.ledgerOpen,
+    collapsed: [...state.collapsed] }));
 }
 
 // ==== Side rails: collapse with the « / » button (or click a collapsed rail), resize by dragging the edge ====
@@ -1464,6 +1595,42 @@ document.querySelectorAll('.resizer').forEach(handle => {
 $('#snapSelect').addEventListener('change', e => { state.snap = Number(e.target.value); savePrefs(); });
 $('#gridToggle').addEventListener('change', e => { state.showGrid = e.target.checked; svg.classList.toggle('nogrid', !state.showGrid); savePrefs(); });
 
+// ==== 3D view ====
+// room3d.html runs in its own window and gets the whole scene over a BroadcastChannel: at most
+// ~60 times a second after changes, and on request when it (re)opens ("hello"). A timer rather
+// than requestAnimationFrame, so updates still go out while this page is a background tab.
+const view3d = { chan: null, queued: false, win: null };
+
+function sceneMessage() {
+  const r = state.room;
+  return {
+    type: 'scene',
+    colors: state.colors,
+    room: r && { width: r.width, length: r.length, ceiling: r.ceiling, openings: r.openings },
+    items: state.items.map(it => ({
+      id: it.id, name: it.name, label: it.label, type: it.type, isRug: it.isRug,
+      width: it.width, depth: it.depth, height: it.height, x: it.x, y: it.y, rot: it.rot, doc: it.doc,
+    })),
+  };
+}
+
+function postScene() {
+  if (!view3d.chan || view3d.queued) return;
+  view3d.queued = true;
+  setTimeout(() => { view3d.queued = false; view3d.chan.postMessage(sceneMessage()); }, 16);
+}
+
+if ('BroadcastChannel' in window) {
+  view3d.chan = new BroadcastChannel(VIEW3D_CHANNEL);
+  view3d.chan.onmessage = e => { if (e.data && e.data.type === 'hello') postScene(); };
+}
+
+$('#btn3d').addEventListener('click', () => {
+  if (view3d.win && !view3d.win.closed) { view3d.win.focus(); return; }
+  view3d.win = window.open('/room3d.html', 'room3d', 'width=1280,height=800');
+  if (!view3d.win) toast('The browser blocked the 3D window — allow pop-ups for this page.', true);
+});
+
 // ==== Startup ====
 (async function init() {
   const p = safeParse(lsGet(LS_PREFS)) || {};
@@ -1478,6 +1645,8 @@ $('#gridToggle').addEventListener('change', e => { state.showGrid = e.target.che
   applyRails();
   if (typeof p.ledgerOpen === 'boolean') state.ledgerOpen = p.ledgerOpen;
   $('#ledger').open = state.ledgerOpen;
+  if (Array.isArray(p.collapsed)) state.collapsed = new Set(p.collapsed.filter(k => typeof k === 'string'));
+  applyCollapsed();
   $('#snapSelect').value = String(state.snap);
   $('#gridToggle').checked = state.showGrid;
 

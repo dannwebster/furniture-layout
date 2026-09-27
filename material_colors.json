@@ -1,0 +1,32 @@
+{
+  "description": "Maps material/finish names used in furniture/*.json to display colors for the 3D view. Keys are case-insensitive.",
+  "materials": {
+    "walnut": "#5b3a26",
+    "maple": "#c9a27a",
+    "charcoal": "#3a3735",
+    "mori camel": "#b8895c",
+    "camel": "#b8895c",
+    "marbled black": "#1e1e21",
+    "ceramic composite": "#1e1e21",
+    "natural steel": "#5f5c58",
+    "stainless steel": "#b4b7b9",
+    "bronze": "#6b4f33",
+    "oatmeal": "#d7ccb6",
+    "ivory/taupe": "#d8cdbb",
+    "moss": "#6e7346",
+    "olive": "#6a6a3b"
+  },
+  "defaults": {
+    "wood": "#8a6a4a",
+    "upholstery": "#9b9690",
+    "metal": "#8a8a8a",
+    "rug": "#cfc6b4",
+    "mattress": "#f2efe8",
+    "pillow": "#fbfaf6",
+    "floor": "#c8a47a",
+    "wall": "#efebe4",
+    "ceiling": "#faf8f4",
+    "window": "#bfdcf0",
+    "trim": "#f7f5f1"
+  }
+}

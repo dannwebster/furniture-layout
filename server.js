@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Local server for the furniture layout page. No dependencies.
 //   GET  /                 the layout page
-//   GET  /api/project      room_layout.json, furniture_placements.json and every .json under furniture/
+//   GET  /room3d.html      the 3D view (opened as a popup from the layout page)
+//   GET  /api/project      room_layout.json, furniture_placements.json, material_colors.json and every .json under furniture/ and rugs/
 //   PUT  /api/placements   write furniture_placements.json (POST also accepted, for sendBeacon)
-//   GET  /api/events       server-sent events: "change" when project files change, "page" when the page changes
+//   GET  /api/events       server-sent events: "change" when project files change, "page" when a page changes
 'use strict';
 
 const http = require('http');
@@ -16,8 +17,10 @@ const ROOT = __dirname;
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 const PAGE_FILE = 'furniture-layout.html';
+const VIEW3D_FILE = 'room3d.html';
 const ROOM_FILE = 'room_layout.json';
-const FURNITURE_DIR = 'furniture';
+const COLORS_FILE = 'material_colors.json';
+const PRODUCT_DIRS = ['furniture', 'rugs']; // one JSON file per product, any depth
 const PLACEMENTS_FILE = 'furniture_placements.json';
 const MAX_BODY = 1024 * 1024;
 
@@ -47,7 +50,8 @@ async function readProject() {
   };
   await add(ROOM_FILE);
   await add(PLACEMENTS_FILE);
-  for (const rel of await listJson(FURNITURE_DIR)) await add(rel);
+  await add(COLORS_FILE);
+  for (const dir of PRODUCT_DIRS) for (const rel of await listJson(dir)) await add(rel);
   return files;
 }
 
@@ -94,10 +98,10 @@ let changeTimer = null, pageTimer = null;
 function onFsChange(filename) {
   if (!filename) return;
   const rel = String(filename).replace(/\\/g, '/');
-  if (rel === PAGE_FILE) {
+  if (rel === PAGE_FILE || rel === VIEW3D_FILE) {
     clearTimeout(pageTimer);
     pageTimer = setTimeout(() => broadcast('page'), 150);
-  } else if (rel === ROOM_FILE || (rel.startsWith(FURNITURE_DIR + '/') || rel === FURNITURE_DIR)) {
+  } else if (rel === ROOM_FILE || rel === COLORS_FILE || PRODUCT_DIRS.some(d => rel === d || rel.startsWith(d + '/'))) {
     // Our own writes to furniture_placements.json are deliberately not broadcast.
     clearTimeout(changeTimer);
     changeTimer = setTimeout(() => broadcast('change'), 150);
@@ -120,6 +124,9 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/' + PAGE_FILE)) {
       return send(res, 200, await fsp.readFile(path.join(ROOT, PAGE_FILE)), 'text/html; charset=utf-8');
+    }
+    if (req.method === 'GET' && url.pathname === '/' + VIEW3D_FILE) {
+      return send(res, 200, await fsp.readFile(path.join(ROOT, VIEW3D_FILE)), 'text/html; charset=utf-8');
     }
     if (req.method === 'GET' && url.pathname === '/api/project') {
       return send(res, 200, JSON.stringify({ files: await readProject() }), 'application/json; charset=utf-8');
@@ -148,7 +155,7 @@ setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 25000
 server.listen(PORT, HOST, () => {
   const url = `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/`;
   console.log(`Furniture layout running at ${url}`);
-  console.log(`Reading ${ROOM_FILE} and ${FURNITURE_DIR}/**/*.json; saving to ${PLACEMENTS_FILE}`);
+  console.log(`Reading ${ROOM_FILE} and ${PRODUCT_DIRS.map(d => d + '/**/*.json').join(', ')}; saving to ${PLACEMENTS_FILE}`);
   if (process.argv.includes('--open')) {
     const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
       : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
