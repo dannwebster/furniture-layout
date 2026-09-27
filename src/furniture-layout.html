@@ -540,6 +540,15 @@ function parseFurniture(doc, path) {
   const listLabel = fu.label || [fu.collection, fu.type].filter(Boolean).map(humanize).join(' ') || fu.name || humanize(base.split('/').pop());
   const label = fu.label || listLabel + (size ? ` ${size}` : '');
   const parts = base.split('/');
+  // Color in words for the inspector, read from the same materials fields as the 3D view's colorsFor(),
+  // plus a top in another color (e.g. "walnut, marbled black top").
+  const m = isObj(doc.materials) ? doc.materials : {};
+  const mat = k => isObj(m[k]) ? m[k] : {};
+  const up = mat('upholstery');
+  const body = [mat('case').color, mat('case').wood, mat('wood').species, mat('wood').color, m.wood_stain,
+    up.fabric && up.color ? `${up.fabric} ${up.color}` : null, up.color, m.color].find(v => typeof v === 'string' && v.trim());
+  const top = [mat('top').color, mat('top').wood].find(v => typeof v === 'string' && v.trim());
+  const color = [body, top && top !== body ? `${top} top` : null].filter(Boolean).join(', ') || null;
   return {
     base, file: path,
     folder: parts.length > 1 ? parts[0] : '', // first folder under furniture/ or rugs/ (rugs: the size)
@@ -551,6 +560,7 @@ function parseFurniture(doc, path) {
     type: String(fu.type || ''), isRug,
     round: /^(round|circle|oval|ellipse)$/i.test(String(fu.shape || '')), // drawn as an ellipse inscribed in width x depth
     width, depth, height: Number.isFinite(height) ? height * f : null,
+    color,
     price: parsePrice(isObj(doc.metadata) ? doc.metadata.price : null),
     // Several files are alternatives for the same spot, so the count starts at 0 unless marked selected.
     initial: fu.selected === true ? Math.max(1, parseInt(fu.quantity, 10) || 1) : 0,
@@ -1233,7 +1243,7 @@ function renderInspector() {
   const count = piecesOf(it.base).length;
   $('#insName').textContent = it.label;
   $('#insMeta').textContent = [it.name, `${fmtFI(it.width)} W × ${fmtFI(it.depth)} D` + (it.height ? ` × ${fmtFI(it.height)} H` : ''),
-    it.price && it.price.text, count > 1 ? `${it.n} of ${count}` : null].filter(Boolean).join(' · ');
+    it.price && it.price.text, it.color, count > 1 ? `${it.n} of ${count}` : null].filter(Boolean).join(' · ');
   // Photos come from `npm run photos`; a product without one (or a photo that fails to load) shows none.
   const photo = state.photos[it.file.replace(/\.json$/i, '')];
   const img = $('#insPhoto'), link = $('#insPhotoLink');
