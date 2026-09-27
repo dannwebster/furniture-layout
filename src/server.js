@@ -10,6 +10,9 @@
 //   PUT  /api/placements   write <output>/furniture_placements.json (POST also accepted, for sendBeacon)
 //   POST /api/export?name= write the page's Export data / Export image file (layout-<timestamp>.json|png)
 //                          to <output>/, returning { path }
+//   POST /api/export-zip?name=&content=data|site
+//                          write layout-<timestamp>.zip (data: the posted Export data JSON + its products'
+//                          photos) or layout-site-<timestamp>.zip (the --build page as index.html + all photos)
 //   GET  /api/events       server-sent events: "change" when data files change, "page" when a page changes
 //   node server.js [data-dir] --build
 //                          instead of serving, write <output>/furniture-layout.html: one standalone page with
@@ -21,6 +24,7 @@ const http = require('http');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
+const zlib = require('zlib');
 const { spawn } = require('child_process');
 
 const USAGE = `Usage: node server.js [data-dir] [options]
@@ -102,7 +106,7 @@ const IMAGE_TYPES = { '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'ima
 const MAX_BODY = 1024 * 1024;
 const MAX_EXPORT = 50 * 1024 * 1024; // a plan PNG runs to a few MB
 // Exports are written straight into OUTPUT_DIR, so only the page's own timestamped names are accepted.
-const EXPORT_NAME = /^layout-\d{8}T\d{6}Z\.(json|png)$/;
+const EXPORT_NAME = /^layout-(site-)?\d{8}T\d{6}Z\.(json|png|zip)$/;
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
@@ -288,6 +292,13 @@ const server = http.createServer(async (req, res) => {
       await fsp.writeFile(target, body);
       return send(res, 200, JSON.stringify({ path: target }), 'application/json; charset=utf-8');
     }
+    if (req.method === 'POST' && url.pathname === '/api/export-zip') {
+      const name = url.searchParams.get('name') || '', content = url.searchParams.get('content');
+      if (!EXPORT_NAME.test(name) || !name.endsWith('.zip')) return send(res, 400, `bad export name "${name}"`);
+      if (content !== 'data' && content !== 'site') return send(res, 400, 'content must be "data" or "site"');
+      const result = await exportZip(name, content, await readBody(req, MAX_EXPORT));
+      return send(res, 200, JSON.stringify(result), 'application/json; charset=utf-8');
+    }
     if (req.method === 'GET' && url.pathname === '/api/events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
       res.write('retry: 2000\n\n');
@@ -311,19 +322,117 @@ function injectHead(html, snippet, file) {
   return html.replace(/<\/head>/i, () => `${snippet}\n</head>`);
 }
 
-async function build() {
+// The standalone page: used by --build and by the page's Export site button.
+async function buildPage() {
   const files = await readProject();
+  const photos = await readPhotos();
   const room3d = injectHead(await fsp.readFile(path.join(APP_DIR, VIEW3D_FILE), 'utf8'),
     '<script>window.FURNITURE_LAYOUT_STANDALONE = true;</script>', VIEW3D_FILE);
-  const payload = { built: new Date().toISOString(), dataDir: DATA_DIR, files, photos: await readPhotos(), room3d };
+  const payload = { built: new Date().toISOString(), dataDir: DATA_DIR, files, photos, room3d };
   const page = injectHead(await fsp.readFile(path.join(APP_DIR, PAGE_FILE), 'utf8'),
     `<script>window.FURNITURE_LAYOUT_EMBEDDED = ${inlineJson(payload)};</script>`, PAGE_FILE);
+  return { page, files, photos };
+}
+
+async function build() {
+  const { page, files } = await buildPage();
   await fsp.mkdir(OUTPUT_DIR, { recursive: true });
   const target = path.join(OUTPUT_DIR, PAGE_FILE);
   await fsp.writeFile(target, page, 'utf8');
   const placed = files.some(f => f.path === PLACEMENTS_FILE) ? `with ${PLACEMENTS_FILE}` : `no ${PLACEMENTS_FILE} yet`;
   console.log(`Read ${files.length} files from ${DATA_DIR} (${placed})`);
   console.log(`Wrote ${target} (${(Buffer.byteLength(page) / 1024).toFixed(0)} KB)`);
+}
+
+// ---- Zip exports ----
+// A minimal zip writer (no dependencies): deflate where it helps, store otherwise (WebP/JPEG don't shrink).
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function makeZip(entries) {
+  const now = new Date();
+  const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  const locals = [], centrals = [];
+  let offset = 0;
+  for (const { name, data } of entries) {
+    const nameBuf = Buffer.from(name, 'utf8');
+    const deflated = zlib.deflateRawSync(data);
+    const method = deflated.length < data.length ? 8 : 0;
+    const body = method ? deflated : data;
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);            // version needed
+    local.writeUInt16LE(0x0800, 6);        // UTF-8 names
+    local.writeUInt16LE(method, 8);
+    local.writeUInt16LE(time, 10);
+    local.writeUInt16LE(date, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);          // version made by
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(method, 10);
+    central.writeUInt16LE(time, 12);
+    central.writeUInt16LE(date, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(body.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBuf.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, nameBuf, body);
+    centrals.push(central, nameBuf);
+    offset += local.length + nameBuf.length + body.length;
+  }
+  const dir = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(dir.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, dir, end]);
+}
+
+// Shared by Export zip and Export site: the main file plus the photos it refers to. Photo URLs are the
+// relative "photos/..." ones readPhotos() hands out, so they keep the same paths inside the zip.
+async function writeExportZip(name, main, photoUrls) {
+  const entries = [main];
+  for (const u of new Set(photoUrls)) {
+    const rel = u.split('/').map(decodeURIComponent);
+    try { entries.push({ name: rel.join('/'), data: await fsp.readFile(path.join(OUTPUT_DIR, ...rel)) }); }
+    catch (err) { if (err.code !== 'ENOENT') throw err; }
+  }
+  await fsp.mkdir(OUTPUT_DIR, { recursive: true });
+  const target = path.join(OUTPUT_DIR, name);
+  await fsp.writeFile(target, makeZip(entries));
+  return { path: target, photos: entries.length - 1 };
+}
+
+// content=data: the page's Export data JSON (request body) and photos of the products listed in it;
+// content=site: the --build page as index.html and every product photo it can show.
+async function exportZip(name, content, body) {
+  const photos = await readPhotos();
+  if (content === 'data') {
+    let doc;
+    try { doc = JSON.parse(body.toString('utf8')); } catch (err) { throw Object.assign(new Error(`invalid JSON: ${err.message}`), { status: 400 }); }
+    const files = (Array.isArray(doc && doc.products) ? doc.products : []).map(p => String(p && p.file || '').replace(/\.json$/i, ''));
+    return writeExportZip(name, { name: name.replace(/\.zip$/, '.json'), data: body }, files.map(f => photos[f]).filter(Boolean));
+  }
+  const site = await buildPage();
+  return writeExportZip(name, { name: 'index.html', data: Buffer.from(site.page, 'utf8') }, Object.values(site.photos));
 }
 
 function serve() {

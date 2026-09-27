@@ -310,6 +310,8 @@
     <div id="exportBar" hidden>
       <button id="btnExportData" title="Save the room, every product file and the positions as one layout-<time>.json in the output folder">Export data</button>
       <button id="btnExportImage" title="Save the plan as it's drawn here as layout-<time>.png in the output folder">Export image</button>
+      <button id="btnExportZip" title="Save the Export data JSON plus the photos of the products in the room as layout-<time>.zip in the output folder">Export zip</button>
+      <button id="btnExportSite" title="Save the standalone page (as npm run build makes it) plus every product photo as layout-site-<time>.zip in the output folder">Export site</button>
     </div>
   </section>
 
@@ -1426,7 +1428,7 @@ function buildExport() {
     return {
       file: p.file, base: p.base, name: p.name, label: p.label, manufacturer: p.group, type: p.type || null,
       color: p.color, price: p.price ? { amount: p.price.amount, currency: p.price.currency } : null,
-      count, doc: p.doc,
+      count, photo: state.photos[p.file.replace(/\.json$/i, '')] || null, doc: p.doc,
     };
   });
   return {
@@ -1515,6 +1517,25 @@ $('#btnExportData').addEventListener('click', e => runExport(e.currentTarget, ()
   saveExport(`layout-${exportStamp()}.json`, new Blob([JSON.stringify(buildExport(), null, 2) + '\n'], { type: 'application/json' }))));
 $('#btnExportImage').addEventListener('click', e => runExport(e.currentTarget, async () =>
   saveExport(`layout-${exportStamp()}.png`, await renderPlanPng())));
+
+// Export zip / Export site: the server zips the main file (the Export data JSON, or the standalone page as
+// index.html) with the photos it refers to. Both need the server, so a standalone page hides them.
+async function saveExportZip(name, content, body) {
+  const r = await fetch(`/api/export-zip?name=${encodeURIComponent(name)}&content=${content}`, { method: 'POST', body });
+  if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+  const { path, photos } = await r.json();
+  toast(`Saved ${path} (${photos} photo${photos === 1 ? '' : 's'})`);
+}
+$('#btnExportZip').addEventListener('click', e => runExport(e.currentTarget, () =>
+  saveExportZip(`layout-${exportStamp()}.zip`, 'data', JSON.stringify(buildExport(), null, 2) + '\n')));
+$('#btnExportSite').addEventListener('click', e => runExport(e.currentTarget, async () => {
+  // The site is built from furniture_placements.json on disk, so write any pending edit first.
+  clearTimeout(saveTimer);
+  await (saveChain = saveChain.then(writePlacements));
+  if (state.saveError) throw new Error(`could not save the layout first: ${state.saveError}`);
+  await saveExportZip(`layout-site-${exportStamp()}.zip`, 'site');
+}));
+if (EMBEDDED) { $('#btnExportZip').hidden = true; $('#btnExportSite').hidden = true; }
 
 // ==== Standalone page ====
 // A page built by `server.js --build` has no server: the project files come from EMBEDDED and edits
