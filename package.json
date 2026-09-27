@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js --open",
-    "serve": "node server.js"
+    "serve": "node server.js",
+    "photos": "node fetch-photos.js"
   },
   "engines": {
     "node": ">=20"
