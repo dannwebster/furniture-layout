@@ -125,6 +125,21 @@ function imageExt(buf) {
 
 const decodeEntities = s => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x2F;/g, '/').replace(/&#39;/g, "'");
 const slug = s => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48).replace(/-$/, '');
+// For loose word matching: "Ivory/Taupe" and "ivory taupe" both become "ivorytaupe", 8'x10' becomes 8x10.
+const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// Every string in a (nested) object, or only those under the given keys.
+function strings(obj, keys) {
+  const out = [];
+  (function walk(v, key) {
+    if (typeof v === 'string') { if (!keys || keys.includes(key)) out.push(v); }
+    else if (Array.isArray(v)) v.forEach(x => walk(x, key));
+    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, k);
+  })(obj, null);
+  return out;
+}
+// The finish words a product file commits to, e.g. ["Mori", "camel"] or ["walnut", "marbled black"].
+const finishWords = doc => [...new Set(strings(doc.materials || {}, ['wood', 'species', 'fabric', 'color']))];
 
 function cleanUrl(raw) {
   const u = new URL(raw);
@@ -145,8 +160,35 @@ const ldImages = p => [].concat(p.image || []).map(i => (typeof i === 'string' ?
 
 // ---- Retailer scrapers: each returns { title, photos: [{ url, kind, caption }] } ----
 
+// Room & Board variant tree (rugs: size → style → hidden "Material" filter → color). Each leaf is one
+// article, and <collection>/<article> is that exact variant. Levels with renderer NONE are hidden filters,
+// not choices, so they're left out of the path.
+function rnbLeaves(selector) {
+  const leaves = [];
+  (function walk(sel, path) {
+    for (const v of sel?.values || []) {
+      if (!v.articleNumbers && v.values) { walk(v, path); continue; } // a group ("Standard") is itself a selector
+      const next = sel.renderer === 'NONE' || !v.title ? path : [...path, v.title];
+      if (v.selectors?.length) for (const s of v.selectors) walk(s, next);
+      else if (v.articleNumbers?.length === 1) leaves.push({ article: v.articleNumbers[0], path: next });
+    }
+  })(selector, []);
+  return leaves;
+}
+
+// The variants whose every choice ("8'x10' Rug", "Low loop", "Oatmeal") appears in the file's name, size
+// or materials, most specific first.
+function rnbMatches(leaves, doc) {
+  const text = norm([doc.furniture?.name, doc.furniture?.size, ...strings(doc.materials || {})].join(' '));
+  const words = leaf => leaf.path.map(t => norm(t).replace(/rug$/, '')).filter(Boolean);
+  return leaves
+    .filter(l => words(l).length && words(l).every(w => text.includes(w)))
+    .map(l => ({ ...l, score: words(l).join('').length }))
+    .sort((a, b) => b.score - a.score);
+}
+
 // Room & Board (Next.js): configured product render + detail close-ups + room scenes, served from Scene7.
-function roomAndBoard(html, pageUrl) {
+function roomAndBoard(html, pageUrl, doc) {
   const ld = jsonLdProducts(html)[0];
   const nd = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
   const model = nd ? JSON.parse(nd[1]).props?.pageProps?.productPageStore?.productPageModel : null;
@@ -177,7 +219,24 @@ function roomAndBoard(html, pageUrl) {
     for (const qa of v.questionAnswers) described.add(qa.question);
   }
   for (const [q, a] of answers) if (!described.has(q)) parts.push(`${q}: ${a}`);
+  // Variant pages (rugs) have no questions; the chosen leaf of the variant tree says what's shown.
+  const leaves = rnbLeaves(model?.combinedProductSelector);
+  const shown = leaves.find(l => l.article === article);
+  if (shown) parts.push(shown.path.join(' / '));
   const config = parts.join(', ');
+  // A URL without CHAR_* options often lands on the collection's default variant (another size or colour).
+  // Point at the variant the file describes, unless the URL's own article already fits it.
+  let variant = null;
+  if (doc && !/[?&]CHAR_/i.test(pageUrl)) {
+    const matches = rnbMatches(leaves, doc);
+    const best = matches.filter(m => m.score === matches[0]?.score);
+    if (best.length === 1 && !matches.some(m => m.article === article)) {
+      const u = new URL(pageUrl);
+      u.pathname = u.pathname.replace(/\/\d+\/?$/, '').replace(/\/$/, '') + '/' + best[0].article;
+      u.search = '';
+      variant = { url: u.toString(), article: best[0].article, path: best[0].path.join(' / ') };
+    }
+  }
   const scene7 = (media, kind) => {
     for (const m of media || []) {
       if (m.type !== 'IMAGE' || !m.image?.src) continue;
@@ -193,7 +252,7 @@ function roomAndBoard(html, pageUrl) {
   scene7(group.dimensionMediaSet, 'dimensions');
   scene7(group.detailMediaSet, 'detail');
   scene7(group.environmentMediaSet, 'room');
-  return { title: ld?.name || group.name, config, photos };
+  return { title: ld?.name || group.name, config, variant, photos };
 }
 
 // Article: gallery images all live under cdn-images.article.com/products/SKU<id>/; the bare URL is the original.
@@ -239,11 +298,18 @@ async function processProduct(rel) {
   const rawUrl = meta.source_variant_url || meta.product_url;
   const name = doc.furniture?.name || rel;
   if (!rawUrl) return { rel, name, error: 'no metadata.product_url' };
-  const pageUrl = cleanUrl(rawUrl);
+  let pageUrl = cleanUrl(rawUrl);
   const dir = path.join(OUT, rel.replace(/\.json$/i, ''));
 
-  const html = await fetchPage(pageUrl);
-  const { title, config, photos: found } = scraperFor(pageUrl)(html, pageUrl);
+  let scraped = scraperFor(pageUrl)(await fetchPage(pageUrl), pageUrl, doc);
+  const variant = scraped.variant;
+  if (variant) {
+    pageUrl = variant.url;
+    scraped = scraperFor(pageUrl)(await fetchPage(pageUrl), pageUrl, null);
+  }
+  const { title, config, photos: found } = scraped;
+  // Finish words from the file that the page's configuration doesn't mention (wrong colour or wood).
+  const mismatch = config ? finishWords(doc).filter(w => !norm(config).includes(norm(w))) : [];
   const seen = new Set();
   const unique = found.filter(p => !seen.has(p.url) && seen.add(p.url));
   // By default keep only the main render; --all adds details, dimensions, room scenes and galleries.
@@ -300,7 +366,7 @@ async function processProduct(rel) {
   }, null, 2) + '\n');
 
   return {
-    rel, name, title, config, dir,
+    rel, name, title, config, variant, mismatch, dir,
     downloaded: ok.filter(r => !r.skipped).length,
     skipped: ok.filter(r => r.skipped).length,
     failed: results.filter(r => r.error),
@@ -325,7 +391,9 @@ async function processProduct(rel) {
     if (r.error) { failures++; console.log(`  ✗ ${rel}: ${r.error}`); return; }
     const extra = [r.skipped && `${r.skipped} already had`, r.failed.length && `${r.failed.length} failed`].filter(Boolean).join(', ');
     console.log(`  ✓ ${rel}: ${r.downloaded} new${extra ? ` (${extra})` : ''}`);
+    if (r.variant) console.log(`      using variant ${r.variant.article} (${r.variant.path})`);
     if (r.config) console.log(`      page configured as ${r.config}`);
+    if (r.mismatch.length) console.log(`      file says ${r.mismatch.join(', ')} but page is configured as ${r.config}`);
     // Collection-level URLs can land on a different size/colour than the file describes.
     if (r.title && r.name && slug(r.title) !== slug(r.name)) console.log(`      page shows "${r.title}", file is "${r.name}"`);
     for (const f of r.failed) { failures++; console.log(`      ✗ ${f.kind} ${f.url}: ${f.error}`); }

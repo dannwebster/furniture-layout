@@ -157,6 +157,9 @@
   #empty .card {
     background: var(--panel); border: 2px dashed #cfc6b9; border-radius: 12px; padding: 28px 32px; max-width: 480px;
   }
+  #exportBar { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; }
+  #exportBar[hidden] { display: none; }
+  #exportBar button { box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
   #toast {
     position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
     background: #2a2622; color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px;
@@ -304,6 +307,10 @@
         <h2 style="margin-top:0">Loading…</h2>
       </div>
     </div>
+    <div id="exportBar" hidden>
+      <button id="btnExportData" title="Save the room, every product file and the positions as one layout-<time>.json in the output folder">Export data</button>
+      <button id="btnExportImage" title="Save the plan as it's drawn here as layout-<time>.png in the output folder">Export image</button>
+    </div>
   </section>
 
   <div class="resizer" data-rail="right" title="Drag to resize · double-click to collapse"></div>
@@ -441,6 +448,7 @@ const state = {
   problems: new Set(),
   colors: null,        // material_colors.json, passed through to the 3D view
   photos: {},          // product path minus .json → main photo URL (from fetch-photos.js, via the server or build)
+  roomDoc: null,       // room_layout.json as written, for Export data
 };
 
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -646,7 +654,7 @@ const isProductPath = p => PRODUCT_DIRS.some(d => p.toLowerCase().startsWith(d +
 // Build the room + furniture from the project files sent by the server.
 function loadProject(files) {
   const errors = [];
-  let room = null, placementsDoc = null;
+  let room = null, roomDoc = null, placementsDoc = null;
   const products = [];
   const roomFile = files.find(f => f.path.toLowerCase() === ROOM_FILE);
   const colorsFile = files.find(f => f.path.toLowerCase() === COLORS_FILE);
@@ -659,7 +667,7 @@ function loadProject(files) {
     let doc;
     try { doc = JSON.parse(f.text); } catch (err) { errors.push(`${f.path}: ${err.message}`); continue; }
     try {
-      if (isRoom) room = parseRoom(doc);
+      if (isRoom) { room = parseRoom(doc); roomDoc = doc; }
       else if (isPlacements) placementsDoc = doc;
       else products.push(parseFurniture(doc, f.path));
     } catch (err) { errors.push(`${f.path}: ${err.message}`); }
@@ -704,6 +712,7 @@ function loadProject(files) {
   }
   const selectedBefore = state.selectedId;
   state.room = room;
+  state.roomDoc = roomDoc;
   state.products = products;
   state.items = items;
   for (const it of items) {
@@ -1298,6 +1307,7 @@ function renderEmpty() {
 function refreshAll() {
   const has = !!state.room;
   $('#empty').hidden = has;
+  $('#exportBar').hidden = !has;
   if (!has) renderEmpty();
   if (has) {
     $('#roomInfo').textContent = `${fmtFI(state.room.width)} × ${fmtFI(state.room.length)}` +
@@ -1398,6 +1408,113 @@ window.addEventListener('pagehide', () => {
   if (EMBEDDED) { try { saveLocal(); } catch { /* storage unavailable */ } }
   else navigator.sendBeacon('/api/placements', new Blob([placementsText()], { type: 'application/json' }));
 });
+
+// ==== Export ====
+// Export data / Export image write layout-<timestamp>.json|png to the output folder through the server
+// (a standalone page has none, so it downloads them). The timestamp is ISO-8601 basic UTC,
+// e.g. 20260926T143012Z: the extended form's colons aren't allowed in Windows file names.
+const exportStamp = () => new Date().toISOString().replace(/[-:]|\.\d+/g, '');
+
+function buildExport() {
+  const sums = {};
+  let unpriced = 0;
+  // Only products that are in the room; the alternatives left at 0 aren't part of the layout.
+  const products = state.products.filter(p => piecesOf(p.base).length).map(p => {
+    const count = piecesOf(p.base).length;
+    if (p.price) sums[p.price.currency] = (sums[p.price.currency] || 0) + p.price.amount * count;
+    else unpriced += count;
+    return {
+      file: p.file, base: p.base, name: p.name, label: p.label, manufacturer: p.group, type: p.type || null,
+      color: p.color, price: p.price ? { amount: p.price.amount, currency: p.price.currency } : null,
+      count, doc: p.doc,
+    };
+  });
+  return {
+    exported: new Date().toISOString(),
+    data_dir: state.dataDir,
+    room: state.roomDoc,
+    material_colors: state.colors,
+    products,
+    layout: (({ not_placed, ...placed }) => placed)(buildPlacements()),
+    total_price: sums,
+    ...(unpriced ? { unpriced_pieces: unpriced } : {}),
+  };
+}
+
+// Rasterize the plan as drawn. The SVG is cloned with the page's stylesheet inside it (standalone, :root
+// is the <svg>, so the color variables still resolve) and rendered at its on-screen size scaled up to ~3000px.
+// Non-scaling strokes are measured in output pixels, so their widths and dashes are scaled to keep the
+// on-screen weight. Selection handles and dimensions are left out.
+async function renderPlanPng() {
+  const [vx, vy, vw, vh] = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+  const box = svg.getBoundingClientRect();
+  const fit = Math.min(box.width / vw, box.height / vh) || 4;
+  const scale = Math.max(1, 3000 / Math.max(vw * fit, vh * fit));
+  const w = Math.round(vw * fit * scale), h = Math.round(vh * fit * scale);
+
+  // Read stroke styles with the selection taken off, so the image shows unselected pieces (no repaint in between).
+  const sel = [...svg.querySelectorAll('.selected')];
+  sel.forEach(e => e.classList.remove('selected'));
+  const clone = svg.cloneNode(true);
+  const live = svg.querySelectorAll('*'), copies = clone.querySelectorAll('*');
+  live.forEach((e, i) => {
+    const cs = getComputedStyle(e);
+    if (cs.vectorEffect !== 'non-scaling-stroke') return;
+    copies[i].style.strokeWidth = `${parseFloat(cs.strokeWidth) * scale}px`;
+    if (cs.strokeDasharray !== 'none') copies[i].style.strokeDasharray = cs.strokeDasharray.split(/[\s,]+/).map(v => parseFloat(v) * scale).join(' ');
+  });
+  sel.forEach(e => e.classList.add('selected'));
+
+  clone.setAttribute('xmlns', SVGNS);
+  clone.setAttribute('width', w);
+  clone.setAttribute('height', h);
+  const overlay = clone.querySelector('g[pointer-events="none"]');
+  if (overlay) overlay.replaceChildren();
+  const style = document.createElementNS(SVGNS, 'style');
+  style.textContent = document.querySelector('style').textContent +
+    `\n#plan { width: ${w}px !important; height: ${h}px !important; font-family: ${getComputedStyle(document.body).fontFamily}; }`;
+  const bg = document.createElementNS(SVGNS, 'rect');
+  for (const [k, v] of Object.entries({ x: vx, y: vy, width: vw, height: vh, fill: getComputedStyle(document.body).backgroundColor })) bg.setAttribute(k, v);
+  clone.prepend(style, bg);
+
+  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const canvas = Object.assign(document.createElement('canvas'), { width: w, height: h });
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    return await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('could not encode the PNG')), 'image/png'));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function saveExport(name, blob) {
+  if (EMBEDDED) {
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`Downloaded ${name}`);
+    return;
+  }
+  const r = await fetch(`/api/export?name=${encodeURIComponent(name)}`, { method: 'POST', body: blob });
+  if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+  toast(`Saved ${(await r.json()).path}`);
+}
+
+async function runExport(button, make) {
+  if (!state.room || button.disabled) return;
+  button.disabled = true;
+  try { await make(); } catch (err) { toast(`Export failed: ${err.message}`, true); } finally { button.disabled = false; }
+}
+$('#btnExportData').addEventListener('click', e => runExport(e.currentTarget, () =>
+  saveExport(`layout-${exportStamp()}.json`, new Blob([JSON.stringify(buildExport(), null, 2) + '\n'], { type: 'application/json' }))));
+$('#btnExportImage').addEventListener('click', e => runExport(e.currentTarget, async () =>
+  saveExport(`layout-${exportStamp()}.png`, await renderPlanPng())));
 
 // ==== Standalone page ====
 // A page built by `server.js --build` has no server: the project files come from EMBEDDED and edits

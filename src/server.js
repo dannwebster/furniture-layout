@@ -8,6 +8,8 @@
 //                          photos maps product paths (minus .json) to their main photo from fetch-photos.js
 //   GET  /photos/...       those photos, from <output>/photos/
 //   PUT  /api/placements   write <output>/furniture_placements.json (POST also accepted, for sendBeacon)
+//   POST /api/export?name= write the page's Export data / Export image file (layout-<timestamp>.json|png)
+//                          to <output>/, returning { path }
 //   GET  /api/events       server-sent events: "change" when data files change, "page" when a page changes
 //   node server.js [data-dir] --build
 //                          instead of serving, write <output>/furniture-layout.html: one standalone page with
@@ -98,6 +100,9 @@ const PLACEMENTS_FILE = 'furniture_placements.json'; // under OUTPUT_DIR
 const PHOTO_MANIFEST = 'sources.json'; // written by fetch-photos.js beside each product's photos
 const IMAGE_TYPES = { '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.avif': 'image/avif', '.gif': 'image/gif' };
 const MAX_BODY = 1024 * 1024;
+const MAX_EXPORT = 50 * 1024 * 1024; // a plan PNG runs to a few MB
+// Exports are written straight into OUTPUT_DIR, so only the page's own timestamped names are accepted.
+const EXPORT_NAME = /^layout-\d{8}T\d{6}Z\.(json|png)$/;
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
@@ -180,16 +185,16 @@ async function readProject() {
   return files;
 }
 
-function readBody(req) {
+function readBody(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on('data', c => {
       size += c.length;
-      if (size > MAX_BODY) { reject(Object.assign(new Error('body too large'), { status: 413 })); req.destroy(); return; }
+      if (size > limit) { reject(Object.assign(new Error('body too large'), { status: 413 })); req.destroy(); return; }
       chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -271,8 +276,17 @@ const server = http.createServer(async (req, res) => {
       catch (err) { if (err.code === 'ENOENT') return send(res, 404, 'Not found'); throw err; }
     }
     if ((req.method === 'PUT' || req.method === 'POST') && url.pathname === '/api/placements') {
-      await writePlacements(await readBody(req));
+      await writePlacements((await readBody(req)).toString('utf8'));
       return send(res, 204, '');
+    }
+    if (req.method === 'POST' && url.pathname === '/api/export') {
+      const name = url.searchParams.get('name') || '';
+      if (!EXPORT_NAME.test(name)) return send(res, 400, `bad export name "${name}"`);
+      const body = await readBody(req, MAX_EXPORT);
+      await fsp.mkdir(OUTPUT_DIR, { recursive: true });
+      const target = path.join(OUTPUT_DIR, name);
+      await fsp.writeFile(target, body);
+      return send(res, 200, JSON.stringify({ path: target }), 'application/json; charset=utf-8');
     }
     if (req.method === 'GET' && url.pathname === '/api/events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
