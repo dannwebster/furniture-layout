@@ -45,11 +45,14 @@ Options:
                        (default: $OUTPUT_DIR, else <data-dir>/../output when the data folder is
                        named "data", else <data-dir>/output)
       --open           open the page in a browser once the server is listening
+      --browser <b>    which browser --open uses: a name Windows can resolve ("chrome", "msedge"),
+                       a macOS application name, or a full path (default: the system default
+                       browser; $BROWSER does the same). Implies --open.
   -b, --build          don't serve: write <output-dir>/furniture-layout.html, a single page with all
                        the data baked in that works without the server (edits save to the browser)
   -h, --help           show this message
 
-Environment: PORT (default 3000), HOST (default 127.0.0.1), DATA_DIR, OUTPUT_DIR.
+Environment: PORT (default 3000), HOST (default 127.0.0.1), DATA_DIR, OUTPUT_DIR, BROWSER.
 Command-line options win over the environment.
 
 While working on the program itself, "npm run dev" runs this file under node --watch-path, so editing
@@ -59,7 +62,8 @@ is broadcast on the event stream and they reload themselves.
 Rendering the 3D view as a photo needs API keys, read from .env in the data folder or the project
 around it, else beside package.json (a real environment variable wins over all of them):
 GEMINI_API_KEY and/or OPENAI_API_KEY for the image model, ANTHROPIC_API_KEY for the optional
-prompt-writing and result-checking passes. RENDER_MODEL_GEMINI, RENDER_MODEL_OPENAI,
+prompt-writing and result-checking passes (plus ANTHROPIC_WORKSPACE_ID when that key isn't
+scoped to a workspace). RENDER_MODEL_GEMINI, RENDER_MODEL_OPENAI,
 RENDER_PROMPT_MODEL and RENDER_PROVIDER override the defaults.`;
 
 function fail(message) {
@@ -69,22 +73,24 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const opts = { data: null, output: null, open: false, build: false, help: false };
+  const opts = { data: null, output: null, open: false, browser: null, build: false, help: false };
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const eq = arg.startsWith('--') ? arg.indexOf('=') : -1;
     const flag = eq > 1 ? arg.slice(0, eq) : arg;
     const inline = eq > 1 ? arg.slice(eq + 1) : null;
-    const value = () => {
+    const value = (what = 'a directory') => {
       const v = inline !== null ? inline : argv[++i];
-      if (!v) fail(`${flag} needs a directory`);
+      if (!v) fail(`${flag} needs ${what}`);
       return v;
     };
     switch (flag) {
       case '-d': case '--data': opts.data = value(); break;
       case '-o': case '--output': opts.output = value(); break;
       case '--open': opts.open = true; break;
+      // Naming a browser means you want it opened.
+      case '--browser': opts.browser = value('a browser name or path'); opts.open = true; break;
       case '-b': case '--build': opts.build = true; break;
       case '-h': case '--help': opts.help = true; break;
       default:
@@ -598,6 +604,53 @@ async function exportRender(name, content) {
   return { ...zip, files: entries.length };
 }
 
+// --open hands the URL to the system default browser, which is Edge on a lot of Windows machines even
+// when Chrome is installed. --browser (or $BROWSER) names one instead: a bare name Windows can resolve
+// ("chrome", "msedge", "firefox"), a macOS application name, or a full path. Each opener is tried in
+// turn and only a missing command moves on to the next, which also covers WSL, where there may be no
+// xdg-open and the Windows side has the real browsers.
+function openBrowser(url) {
+  const named = args.browser || process.env.BROWSER || '';
+  const attempts = [];
+  // "quick" openers hand the URL over and exit, so a non-zero exit means they failed and the next one
+  // is worth a try. A browser started directly stays alive, so its exit code says nothing.
+  const opener = (cmd, cmdArgs) => attempts.push({ cmd, cmdArgs, quick: true });
+  if (process.platform === 'win32') {
+    opener('cmd', ['/c', 'start', '', ...(named ? [named] : []), url]);
+  } else if (process.platform === 'darwin') {
+    opener('open', named ? ['-a', named, url] : [url]);
+  } else {
+    if (named) attempts.push({ cmd: named, cmdArgs: [url], quick: false });
+    for (const c of ['xdg-open', 'wslview', 'sensible-browser']) opener(c, [url]);
+    opener('cmd.exe', ['/c', 'start', '', ...(named ? [named] : []), url]);
+  }
+  const attempt = i => {
+    if (i >= attempts.length) return;
+    const { cmd, cmdArgs, quick } = attempts[i];
+    if (!quick) {
+      // A browser we run ourselves outlives the server, so it's detached and unreferenced.
+      const child = spawn(cmd, cmdArgs, { stdio: 'ignore', detached: true });
+      child.on('error', () => attempt(i + 1));
+      child.unref();
+      return;
+    }
+    // A quick opener hands the URL over and exits, so its exit code says whether it worked. Its stderr
+    // has to be captured rather than ignored: with nowhere to print "cannot find <browser>", Windows
+    // shows a message box instead and waits for it, so the command never exits at all.
+    const child = spawn(cmd, cmdArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let why = '';
+    child.stderr.on('data', chunk => { why += chunk; });
+    child.on('error', () => attempt(i + 1));
+    child.on('exit', code => {
+      if (!code) return;
+      if (i + 1 < attempts.length) return attempt(i + 1);
+      const said = why.trim().split(/\r?\n/)[0];
+      console.warn(`Couldn't open a browser${named ? ` ("${named}")` : ''}${said ? `: ${said}` : ''} — open ${url} yourself.`);
+    });
+  };
+  attempt(0);
+}
+
 function serve() {
   watchFiles();
   // Keep event streams alive through idle periods.
@@ -608,11 +661,7 @@ function serve() {
     console.log(`Furniture layout running at ${url}`);
     console.log(`Reading ${ROOM_FILE} and ${PRODUCT_DIRS.map(d => d + '/**/*.json').join(', ')} from ${DATA_DIR}`);
     console.log(`Saving ${PLACEMENTS_FILE} to ${OUTPUT_DIR}`);
-    if (args.open) {
-      const [cmd, cmdArgs] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
-        : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
-      spawn(cmd, cmdArgs, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
-    }
+    if (args.open) openBrowser(url);
   });
 }
 

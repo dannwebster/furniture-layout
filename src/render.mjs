@@ -200,6 +200,65 @@ function itemLines(items, refsByItem, startIndex) {
   return lines;
 }
 
+// ---- The camera and the frame, in words ----
+const pct = n => `${Math.round(n * 100)}%`;
+const span = box => `${pct(box.x0)}–${pct(box.x1)} of the width from the left`;
+
+// The lens as a photographer would name it (36 mm-wide full frame), and what the height and tilt do to
+// the picture. Image models default to an eye-level, level, ~24 mm view; this says how this one differs.
+function cameraLines(cam, pov) {
+  const lines = [
+    `${ft(cam.fromWest)} from the west wall, ${ft(cam.fromSouth)} from the south wall, lens at ${ft(cam.eye)} above the floor.`,
+    `Looking ${compass(cam.yawDeg)} (${round(cam.yawDeg)} degrees clockwise from north), pitched ` +
+      `${Math.abs(round(cam.pitchDeg))} degrees ${cam.pitchDeg <= 0 ? 'down' : 'up'}.`,
+  ];
+  const hfov = Number(cam.hfovDeg);
+  if (Number.isFinite(hfov) && hfov > 0) {
+    const mm = round(18 / Math.tan(hfov * Math.PI / 360));
+    lines.push(`Horizontal field of view ${round(hfov)} degrees — about a ${mm} mm full-frame lens` +
+      `${mm <= 20 ? ', an ultra-wide view with strong perspective' : mm <= 28 ? ', a wide view' : ''}. ${pov.width} by ${pov.height} pixels.`);
+  }
+  const look = [];
+  if (cam.eye >= 66) look.push('above head height');
+  else if (cam.eye <= 42) look.push('low, about seated height');
+  if (cam.pitchDeg <= -10) look.push(`tilted ${Math.abs(round(cam.pitchDeg))} degrees down, so the floor fills much of the frame and vertical edges lean in towards the bottom`);
+  else if (cam.pitchDeg >= 10) look.push(`tilted ${round(cam.pitchDeg)} degrees up, so vertical edges lean in towards the top`);
+  if (look.length) {
+    lines.push(`The camera is ${look.join(', ')}. Keep exactly that: do not level the camera, lower it to eye height, or correct the converging verticals.`);
+  }
+  return lines;
+}
+
+// Which walls, corners and openings the camera can see, from the page's projection of the room.
+function frameLines(frame) {
+  if (!frame) return [];
+  const lines = [];
+  const walls = (frame.walls || []).filter(w => w.screenBox).sort((a, b) => a.screenBox.x0 - b.screenBox.x0);
+  if (walls.length) {
+    lines.push('Walls, left to right: ' + walls.map(w => `the ${w.wall} wall (${span(w.screenBox)})`).join(', ') + '.');
+  }
+  const hiddenWalls = (frame.walls || []).filter(w => !w.screenBox).map(w => w.wall);
+  if (hiddenWalls.length) lines.push(`The ${hiddenWalls.join(' and ')} wall${hiddenWalls.length > 1 ? 's are' : ' is'} behind or beside the camera and not in the picture.`);
+  for (const c of (frame.corners || []).filter(c => c.screenBox)) {
+    lines.push(`The ${c.corner} corner stands at ${pct((c.screenBox.x0 + c.screenBox.x1) / 2)} of the width from the left.`);
+  }
+  const openings = frame.openings || [];
+  for (const o of openings.filter(o => o.screenBox)) {
+    lines.push(`The ${o.type} on the ${o.wall} wall is in frame, ${span(o.screenBox)}, ` +
+      `${pct(o.screenBox.y0)}–${pct(o.screenBox.y1)} of the height from the top.`);
+  }
+  for (const type of ['window', 'doorway']) {
+    const all = openings.filter(o => o.type === type);
+    const out = all.filter(o => !o.screenBox);
+    if (!out.length) continue;
+    const where = out.map(o => `${o.wall} wall`).join(' and ');
+    lines.push(out.length === all.length
+      ? `No ${type} is visible: the ${type}${out.length > 1 ? 's' : ''} on the ${where} ${out.length > 1 ? 'are' : 'is'} outside the frame. Do not draw a ${type} anywhere.`
+      : `The ${type} on the ${where} is outside the frame; do not draw it.`);
+  }
+  return lines;
+}
+
 function buildPrompt({ request, images, refs, palette, docs }) {
   const { room, pov, options = {} } = request;
   const cam = pov.room || {};
@@ -216,12 +275,15 @@ function buildPrompt({ request, images, refs, palette, docs }) {
   const firstRef = images.findIndex(i => i.role === 'reference') + 1;
 
   const out = [
-    'Photograph this bedroom from the exact viewpoint of the attached GEOMETRY image.',
+    `Turn IMAGE ${geometry} into a photograph. Treat it as a retexture and relight of that exact picture,`,
+    'not a new picture of the room.',
     '',
-    `IMAGE ${geometry} — GEOMETRY: an untextured 3D render of the room from the camera described below. It`,
-    'defines the perspective, the framing, and the exact position, footprint, scale and orientation of',
-    'every object. Reproduce it as a photograph: same camera, same walls, same window, same objects in',
-    'the same places at the same sizes. Do not add, remove, move, resize or re-orient anything.',
+    `IMAGE ${geometry} — GEOMETRY: an untextured 3D render of the room from the camera described below. Its`,
+    'composition is final: every wall edge, corner, floor line, opening and object outline stays where it',
+    'is in the image, with the same camera height, tilt and wide-angle perspective. Change only surfaces,',
+    'materials, textures and light. Do not recompose, re-frame, crop, zoom, level the camera or straighten',
+    'the perspective. Do not add, remove, move, resize or re-orient anything, and draw no wall, window or',
+    'doorway that the geometry image does not show.',
     ...(options.decor ? [
       'The one exception is decor: dress the room with tasteful, restrained styling that suits its',
       'furniture and palette — a few plants, framed art on the walls, a lamp, books, a throw and cushions',
@@ -245,22 +307,23 @@ function buildPrompt({ request, images, refs, palette, docs }) {
       'of details. Ignore their backgrounds, their lighting, their camera angles and any props in them.');
   }
   out.push('', 'ROOM', ...roomLines(room, palette).map(l => '  ' + l));
-  out.push('', 'CAMERA',
-    `  ${ft(cam.fromWest)} from the west wall, ${ft(cam.fromSouth)} from the south wall, eye height ${ft(cam.eye)}.`,
-    `  Looking ${compass(cam.yawDeg)} (${round(cam.yawDeg)} degrees clockwise from north), pitched ` +
-      `${Math.abs(round(cam.pitchDeg))} degrees ${cam.pitchDeg <= 0 ? 'down' : 'up'}.`,
-    `  Horizontal field of view ${round(cam.hfovDeg)} degrees, ${pov.width} by ${pov.height} pixels.`);
+  out.push('', 'CAMERA', ...cameraLines(cam, pov).map(l => '  ' + l));
+  const frame = frameLines(pov.frame);
+  if (frame.length) out.push('', 'WHAT THE FRAME SHOWS', ...frame.map(l => '  ' + l));
   if (clear.length) out.push('', 'IN FRAME, largest first', ...itemLines(clear, refsByItem, 1));
   if (slivers.length) out.push('', 'PARTLY HIDDEN OR FAR', ...itemLines(slivers, refsByItem, clear.length + 1));
   if (hidden.length) {
     out.push('', 'NOT IN FRAME — do not draw these',
       '  ' + hidden.map(it => it.label || it.name).join(', ') + '.');
   }
+  const windows = (pov.frame?.openings || []).filter(o => o.type === 'window');
+  const windowOut = windows.length && windows.every(o => !o.screenBox);
   out.push('', 'LIGHTING', '  ' + (options.lighting ||
-    'Mid-afternoon daylight through the window, warm interior ambient, soft directional shadows.'));
+    'Mid-afternoon daylight through the window, warm interior ambient, soft directional shadows.') +
+    (windowOut ? ' The window is behind or beside the camera: show its light and the shadows it casts, not the window.' : ''));
+  // No lens or horizon here: CAMERA says what this shot's lens and tilt are.
   out.push('', 'STYLE', '  ' + (options.style ||
-    'Straight architectural interior photograph, roughly 24 mm equivalent, deep focus, level horizon, ' +
-    'no vignette, no lens distortion beyond the stated field of view, natural colour, no text or watermark.'));
+    'Straight architectural interior photograph, deep focus, no vignette, natural colour, no text or watermark.'));
   if (options.notes) out.push('', String(options.notes).trim());
   return out.join('\n') + '\n';
 }
@@ -272,6 +335,7 @@ Rewrite the description as tight, concrete photographic direction. Rules, all of
 - Keep every measurement, colour, material, count, bearing, percentage and image number exactly as given.
 - Never add an object, material, or piece of decor that is not listed. Never drop a listed piece.
 - Keep the instruction that the geometry image fixes the camera, the room and the placement and size of everything, and keep the "do not draw" list.
+- Keep the camera's height, tilt and lens, and every statement about which walls, corners, windows and doorways are or are not in the frame. Image models drift towards a level, eye-height view and draw windows they are told about even when they are behind the camera, so lead with the composition and say plainly what is not in view.
 Reply with the prompt text only: no preamble, no markdown, no commentary.`;
 
 // With decor on, the brief itself asks for styling, so the rules make room for it instead of fighting it.
@@ -291,7 +355,12 @@ const AUDIT_SYSTEM_DECOR = AUDIT_SYSTEM.replace('One finding per line',
 
 async function claudeClient(env) {
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  // A key that isn't scoped to a workspace is refused unless the request names one.
+  const workspace = env.ANTHROPIC_WORKSPACE_ID;
+  return new Anthropic({
+    apiKey: env.ANTHROPIC_API_KEY,
+    ...(workspace ? { defaultHeaders: { 'anthropic-workspace-id': workspace } } : {}),
+  });
 }
 
 const imageBlock = img => ({
@@ -408,7 +477,7 @@ const KEY_FOR = { gemini: 'GEMINI_API_KEY', openai: 'OPENAI_API_KEY' };
 // ---- What gets written beside the images ----
 // Everything needed to explain a render later: the camera it was taken from, what was in frame and how
 // much of it, which photos stood in for which piece, the models used, and how long each stage took.
-function describe({ request, name, provider, model, promptModel, refs, missing, options, files, url, times, claudeUsed, audit, usage, error }) {
+function describe({ request, name, provider, model, promptModel, refs, missing, options, files, url, times, claudeUsed, audit, warnings, usage, error }) {
   const { pov } = request;
   return {
     name,
@@ -416,9 +485,12 @@ function describe({ request, name, provider, model, promptModel, refs, missing, 
     provider, model,
     promptModel: claudeUsed || audit ? promptModel : null,
     error: error || null,
+    // Optional steps that failed and were skipped (Claude's rewrite or check), so it shows afterwards.
+    warnings: warnings && warnings.length ? warnings : null,
     size: { width: pov.width, height: pov.height, aspect: nearestAspect(pov.width, pov.height) },
     pov: { position: pov.position, quaternion: pov.quaternion, fov: pov.fov },
     camera: pov.room || null,
+    frame: pov.frame || null,
     room: request.room ? { width: request.room.width, length: request.room.length, ceiling: request.room.ceiling } : null,
     items: request.items.map(it => ({
       id: it.id, file: it.file, label: it.label, visible: !!it.visible,
@@ -519,6 +591,7 @@ export async function renderView(request, ctx) {
 
   // 3. Optionally let Claude tighten it. A refusal or an error falls back to the draft.
   let final = draft, claudeUsed = false;
+  const warnings = [];
   if (options.claudePrompt) {
     broadcast('render', { stage: 'claude', name });
     t = clock();
@@ -529,6 +602,7 @@ export async function renderView(request, ctx) {
       });
       if (text) { final = text.endsWith('\n') ? text : text + '\n'; claudeUsed = true; }
     } catch (err) {
+      warnings.push(`Claude didn't write the prompt: ${err.message}`);
       broadcast('render', { stage: 'claude-failed', name, error: err.message });
     }
     times.claude = clock() - t;
@@ -547,7 +621,7 @@ export async function renderView(request, ctx) {
     times.total = clock() - started;
     const meta = await saveMeta(ctx, dir, describe({
       request, name, provider, model: null, promptModel: ctx.promptModel, refs, missing, options, files,
-      url, times, claudeUsed, audit: null, usage: null, error: null,
+      url, times, claudeUsed, audit: null, warnings, usage: null, error: null,
     }));
     broadcast('render', { stage: 'saved', name, url: null });
     return meta;
@@ -565,7 +639,7 @@ export async function renderView(request, ctx) {
     times.total = clock() - started;
     await saveMeta(ctx, dir, describe({
       request, name, provider, model, promptModel: ctx.promptModel, refs, missing, options, files, url,
-      times, claudeUsed, audit: null, usage: null, error: err.message,
+      times, claudeUsed, audit: null, warnings, usage: null, error: err.message,
     }));
     broadcast('render', { stage: 'error', name, error: err.message });
     throw err;
@@ -594,6 +668,7 @@ export async function renderView(request, ctx) {
       });
       audit = text && text.trim().toLowerCase() !== 'ok' ? text.split('\n').map(s => s.trim()).filter(Boolean) : [];
     } catch (err) {
+      warnings.push(`Claude didn't check the result: ${err.message}`);
       broadcast('render', { stage: 'audit-failed', name, error: err.message });
     }
     times.audit = clock() - t;
@@ -602,7 +677,7 @@ export async function renderView(request, ctx) {
   times.total = clock() - started;
   const meta = await saveMeta(ctx, dir, describe({
     request, name, provider, model, promptModel: ctx.promptModel, refs, missing, options, files, url,
-    times, claudeUsed, audit, usage: result.usage, error: null,
+    times, claudeUsed, audit, warnings, usage: result.usage, error: null,
   }));
   broadcast('render', { stage: 'saved', name, url: meta.urls.renders[0] || null });
   return meta;

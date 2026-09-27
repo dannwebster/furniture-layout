@@ -5,14 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bedroom Layout — 3D</title>
 <style>
-  :root { --ink: #2a2622; --panel: rgba(255, 255, 255, 0.88); --muted: #6f675f; --line: #e2dcd3; --danger: #c62828; }
+  :root { --ink: #2a2622; --muted: #6f675f; --line: #e2dcd3; --danger: #c62828; }
   html, body { height: 100%; margin: 0; overflow: hidden; background: #dfe6ec; }
-  body { font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); }
-  canvas { display: block; }
-  #hud {
-    position: fixed; top: 12px; left: 12px; max-width: 320px; padding: 10px 12px;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(4px);
+  /* Controls on the left, the view in the middle, the render panel on the right, past renders along the
+     bottom: nothing is drawn over the scene except the render being compared against it. */
+  body {
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink);
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas: "hud stage panel" "shots shots shots";
   }
+  /* Dark around the letterboxed picture, so its edges stand out against the bars. */
+  #stage { grid-area: stage; position: relative; overflow: hidden; min-width: 0; min-height: 0; background: #1b1917; }
+  #stage canvas { display: block; position: absolute; top: 0; left: 0; }
+  .rail { min-height: 0; overflow: auto; padding: 10px 12px; box-sizing: border-box; background: #fbfaf8; }
+  #hud { grid-area: hud; width: 260px; border-right: 1px solid var(--line); }
+  /* A folded rail shrinks to its heading and gives the width back to the view. */
+  #hud.collapsed, #renderPanel.collapsed { width: auto; max-width: 260px; }
   #hud h1 { font-size: 14px; margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
   /* Hide/Show button in a panel's heading (collapsible() below). */
   .panelToggle, #renderPanel button.panelToggle {
@@ -29,30 +37,32 @@
     border-bottom-width: 2px; border-radius: 4px; background: #faf8f5; color: var(--ink);
   }
   #prompt {
-    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%);
     background: rgba(42, 38, 34, 0.85); color: #fff; padding: 8px 14px; border-radius: 8px; pointer-events: none;
+    border: 1px solid rgba(255, 255, 255, 0.35);
   }
   #prompt[hidden] { display: none; }
   #crosshair {
-    position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
+    position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
     border-radius: 50%; background: rgba(255, 255, 255, 0.8); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); pointer-events: none;
   }
   #crosshair[hidden] { display: none; }
   #waiting {
-    position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px;
+    position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px;
   }
   #waiting[hidden] { display: none; }
   #waiting .card { background: #fff; border: 2px dashed #cfc6b9; border-radius: 12px; padding: 24px 28px; max-width: 440px; }
-  /* The rectangle a render will cover: the image's aspect, letterboxed in the window. */
-  #frameGuide { position: fixed; border: 1px dashed rgba(42, 38, 34, 0.45); pointer-events: none; }
-  #frameGuide[hidden], #renderOverlay[hidden], #renderPanel[hidden] { display: none; }
-  #renderOverlay { position: fixed; pointer-events: none; }
+  #renderOverlay[hidden], #renderPanel[hidden], #shots[hidden] { display: none; }
+  /* Clicks fall through to the scene (to look around) everywhere but the close button. */
+  #renderOverlay { position: absolute; pointer-events: none; }
   #renderOverlay img { display: block; width: 100%; height: 100%; }
-  #renderPanel {
-    position: fixed; top: 12px; right: 12px; width: 268px; max-height: calc(100vh - 24px); overflow: auto;
-    padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-    backdrop-filter: blur(4px);
+  #renderClose {
+    position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; padding: 0; pointer-events: auto;
+    font: 18px/1 system-ui, sans-serif; cursor: pointer; color: #fff; background: rgba(42, 38, 34, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 50%;
   }
+  #renderClose:hover { background: rgba(42, 38, 34, 0.9); }
+  #renderPanel { grid-area: panel; width: 268px; border-left: 1px solid var(--line); }
   #renderPanel h2 {
     font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px;
     display: flex; align-items: center; gap: 8px;
@@ -79,16 +89,20 @@
   #renderPanel .status { margin-top: 8px; color: var(--muted); }
   #renderPanel .status.bad { color: var(--danger); }
   #renderPanel .findings { margin: 6px 0 0; padding-left: 16px; color: var(--danger); }
-  #renderPanel .shots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  #renderPanel .shots img, #renderPanel .shots .brief {
-    width: 56px; height: 38px; object-fit: cover; cursor: pointer; box-sizing: border-box;
-    border: 1px solid var(--line); border-radius: 4px;
+  /* Every past render, newest first, in one strip that scrolls sideways on its own and fills in as it goes. */
+  #shots {
+    grid-area: shots; display: flex; gap: 8px; padding: 8px 12px; overflow-x: auto; overflow-y: hidden;
+    background: #fbfaf8; border-top: 1px solid var(--line); overscroll-behavior-x: contain;
+  }
+  #shots img, #shots .brief {
+    flex: none; width: 120px; height: 80px; object-fit: cover; cursor: pointer; box-sizing: border-box;
+    border: 1px solid var(--line); border-radius: 4px; background: #eee9e2;
   }
   /* A render that stopped at the brief, or failed: no picture, but its prompt is still worth exporting. */
-  #renderPanel .shots .brief {
-    display: grid; place-items: center; border-style: dashed; font-size: 10px; color: var(--muted);
+  #shots .brief {
+    display: grid; place-items: center; border-style: dashed; font-size: 11px; color: var(--muted);
   }
-  #renderPanel .shots .on { border-color: #7f8f6b; box-shadow: 0 0 0 2px #dfe7d6; }
+  #shots .on { border-color: #7f8f6b; box-shadow: 0 0 0 2px #dfe7d6; }
   #renderPanel .fade { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); }
 </style>
 <script type="importmap">
@@ -99,22 +113,34 @@
 </script>
 </head>
 <body>
-<!-- Drawn over the scene but under the panels below (later fixed elements paint on top). -->
-<div id="frameGuide" hidden></div>
-<div id="renderOverlay" hidden><img id="renderImage" alt="The latest render of this view"></div>
-<div id="hud">
+<div id="stage">
+  <!-- The canvas is prepended here, sized to the image's aspect ratio; these sit over it. -->
+  <div id="renderOverlay" hidden>
+    <img id="renderImage" alt="The latest render of this view">
+    <button id="renderClose" type="button" title="Close the render (Esc)" aria-label="Close the render">×</button>
+  </div>
+  <div id="crosshair" hidden></div>
+  <div id="prompt">Click to look around</div>
+  <div id="waiting" hidden>
+    <div class="card">
+      <h2 style="margin-top:0">No layout yet</h2>
+      <p>Open this window with the <b>3D view</b> button on the layout page, and keep that page open — the 3D view follows it live.</p>
+    </div>
+  </div>
+</div>
+<div id="hud" class="rail">
   <h1>3D view <button id="hudToggle" class="panelToggle" type="button"></button></h1>
   <div class="muted" id="status">Waiting for the layout…</div>
   <div class="keys">
-    Click the view to look around · <kbd>Esc</kbd> releases the mouse<br>
+    Click the view to look around · <kbd>Esc</kbd> releases the mouse, then closes the render<br>
     <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · wheel forward/back · <kbd>Shift</kbd> faster<br>
     <kbd>E</kbd>/<kbd>Space</kbd> up · <kbd>Q</kbd> down<br>
     <kbd>R</kbd> back to the doorway · <kbd>C</kbd> ceiling on/off · <kbd>H</kbd> hide controls<br>
-    <kbd>P</kbd> render this view · <kbd>V</kbd> show the render · <kbd>B</kbd> hold to compare
+    <kbd>P</kbd> render this view · <kbd>V</kbd> show/hide the render · <kbd>B</kbd> hold to compare
   </div>
   <div class="warn" id="unmapped" hidden></div>
 </div>
-<div id="renderPanel" hidden>
+<div id="renderPanel" class="rail" hidden>
   <h2>Render this view <button id="renderToggle" class="panelToggle" type="button"></button></h2>
   <label><span>Image model</span><select id="rProvider"></select></label>
   <label><span>Size</span><select id="rSize"></select></label>
@@ -135,16 +161,8 @@
   <div class="fade" id="rFade" hidden>
     <span>Fade</span><input type="range" id="rOpacity" min="0" max="100" value="100">
   </div>
-  <div class="shots" id="rShots"></div>
 </div>
-<div id="crosshair" hidden></div>
-<div id="prompt">Click to look around</div>
-<div id="waiting" hidden>
-  <div class="card">
-    <h2 style="margin-top:0">No layout yet</h2>
-    <p>Open this window with the <b>3D view</b> button on the layout page, and keep that page open — the 3D view follows it live.</p>
-  </div>
-</div>
+<div id="shots" hidden title="Past renders: click to show, double-click to stand there again"></div>
 
 <script type="module">
 import * as THREE from 'three';
@@ -164,16 +182,19 @@ const BUILTIN = {
 };
 
 // ==== Renderer, camera, controls ====
+// The scene fills #stage, the grid cell between the two rails, rather than the window.
+const stage = $('#stage');
+const stageSize = () => ({ w: Math.max(1, stage.clientWidth), h: Math.max(1, stage.clientHeight) });
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
+renderer.setSize(stageSize().w, stageSize().h);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-document.body.prepend(renderer.domElement);
+stage.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#dfe6ec');
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.5, 5000);
+const camera = new THREE.PerspectiveCamera(70, stageSize().w / stageSize().h, 0.5, 5000);
 const controls = new PointerLockControls(camera, renderer.domElement);
 window.view3d = { THREE, scene, camera, renderer }; // handle for poking at the scene from DevTools
 
@@ -181,11 +202,9 @@ renderer.domElement.addEventListener('click', () => controls.lock());
 controls.addEventListener('lock', () => { $('#prompt').hidden = true; $('#crosshair').hidden = false; });
 controls.addEventListener('unlock', () => { $('#prompt').hidden = false; $('#crosshair').hidden = true; });
 
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+// The stage changes size with the window and whenever a rail folds or the render strip appears.
+// layoutFrame() re-fits the canvas inside it, keeping the aspect ratio of the image being made.
+new ResizeObserver(() => layoutFrame()).observe(stage);
 
 // ==== Lights ====
 const hemi = new THREE.HemisphereLight('#ffffff', '#b59b7c', 1.6);
@@ -291,6 +310,14 @@ function disposeGroup(g) {
 let roomGroup = null, ceilingMesh = null, showCeiling = true, roomKey = '', home = null;
 let roomUnmapped = new Set(); // room colour names missing from material_colors.json, shown with the furniture's
 
+// One opening in room space: its two ends on the floor plan ([x, z]) and its bottom/top heights.
+function openingBox(o, L, H) {
+  const door = /door|entrance|entry/i.test(o.type);
+  const bottom = door ? 0 : numOr(o.sill, 30);
+  const top = numOr(o.top, o.height != null ? bottom + o.height : door ? DOOR_TOP : bottom + 48);
+  return { door, a: [o.x1, L - o.y1], b: [o.x2, L - o.y2], bottom: Math.max(0, bottom), top: Math.min(H, top) };
+}
+
 function buildRoom(room) {
   if (roomGroup) disposeGroup(roomGroup);
   roomGroup = new THREE.Group();
@@ -319,12 +346,9 @@ function buildRoom(room) {
 
   // Openings along each wall as [start, end] along the wall plus bottom/top heights.
   const openings = (room.openings || []).map(o => {
-    const a = [o.x1, L - o.y1], b = [o.x2, L - o.y2];
+    const h = openingBox(o, L, H);
     const along = o.wall === 'north' || o.wall === 'south' ? 0 : 1;
-    const door = /door|entrance|entry/i.test(o.type);
-    const bottom = door ? 0 : numOr(o.sill, 30);
-    const top = numOr(o.top, o.height != null ? bottom + o.height : door ? DOOR_TOP : bottom + 48);
-    return { o, a, b, door, s0: Math.min(a[along], b[along]), s1: Math.max(a[along], b[along]), bottom: Math.max(0, bottom), top: Math.min(H, top) };
+    return { o, ...h, s0: Math.min(h.a[along], h.b[along]), s1: Math.max(h.a[along], h.b[along]) };
   });
 
   // Each wall: the span it runs along, and a function turning (s0, s1, y0, y1) into a box.
@@ -669,9 +693,11 @@ const LIGHTING = [
   'Early morning sun low through the window, long warm shadows across the floor.',
   'Evening: lamps on, deep blue dusk outside the window, warm pools of light.',
 ];
+// No lens or horizon here: the brief describes the actual camera, and a preset that said "24 mm, level
+// horizon" pulled the image model away from a wide, tilted view.
 const STYLES = [
-  'Straight architectural interior photograph, roughly 24 mm equivalent, deep focus, level horizon, no vignette, no lens distortion beyond the stated field of view, natural colour, no text or watermark.',
-  'Editorial interior photograph, 35 mm, shallower depth of field, styled but uncluttered, natural colour.',
+  'Straight architectural interior photograph, deep focus, no vignette, natural colour, no text or watermark.',
+  'Editorial interior photograph, shallower depth of field, styled but uncluttered, natural colour.',
   'Estate-agent listing photo: bright, evenly lit, everything sharp, slightly cool white balance.',
 ];
 const LS_RENDER = 'furnitureLayout3d.prefs';
@@ -680,19 +706,31 @@ const VISIBLE_AT = 0.002;             // below this share of the frame a piece i
 
 const captureSize = () => CAPTURE_SIZES[Math.max(0, Math.min(CAPTURE_SIZES.length - 1, Number($('#rSize').value) || 0))];
 
-// Vertical field of view is what the camera keeps when its aspect changes, so a capture always covers
-// the window's full height and only differs sideways. That makes the guide (and the overlay) exact.
+// The view *is* the viewfinder: the canvas takes the chosen image's aspect ratio and as much of the
+// stage as that allows, so everything a render will contain is on screen and nothing else is. The
+// render being compared sits exactly on top of it; there's no separate frame to mark.
 function frameRect() {
-  const size = captureSize();
-  const width = innerHeight * size.w / size.h;
-  return { left: (innerWidth - width) / 2, top: 0, width, height: innerHeight };
+  const size = captureSize(), { w, h } = stageSize();
+  const scale = Math.min(w / size.w, h / size.h);
+  const width = Math.max(1, Math.round(size.w * scale)), height = Math.max(1, Math.round(size.h * scale));
+  return { left: Math.round((w - width) / 2), top: Math.round((h - height) / 2), width, height };
 }
 function layoutFrame() {
   const r = frameRect();
-  for (const el of [$('#frameGuide'), $('#renderOverlay')]) {
-    el.style.left = `${r.left}px`; el.style.top = `${r.top}px`;
-    el.style.width = `${r.width}px`; el.style.height = `${r.height}px`;
+  const canvas = renderer.domElement;
+  if (canvas.clientWidth !== r.width || canvas.clientHeight !== r.height) {
+    renderer.setSize(r.width, r.height);
+    camera.aspect = r.width / r.height;
+    camera.updateProjectionMatrix();
   }
+  canvas.style.left = `${r.left}px`;
+  canvas.style.top = `${r.top}px`;
+  const overlay = $('#renderOverlay');
+  overlay.style.left = `${r.left}px`; overlay.style.top = `${r.top}px`;
+  overlay.style.width = `${r.width}px`; overlay.style.height = `${r.height}px`;
+  // The crosshair marks the middle of the frame, not of the stage around it.
+  $('#crosshair').style.left = `${r.left + r.width / 2}px`;
+  $('#crosshair').style.top = `${r.top + r.height / 2}px`;
 }
 
 // One synchronous draw-and-read: the renderer has no preserveDrawingBuffer, so the canvas is only
@@ -821,6 +859,54 @@ function cameraFacts(room, size) {
   };
 }
 
+// What of the room itself is in the captured frame: each wall and the part of the width it spans, each
+// corner's vertical edge, and each window and doorway. The image model otherwise draws what the brief
+// mentions whether or not the camera can see it (a window behind the camera turned up in the picture).
+// Sampled rather than clipped: a grid of points on each surface, projected through a camera with the
+// capture's aspect. Occlusion by furniture is ignored, so "in frame" can still mean partly hidden.
+function frameFacts(room, size) {
+  const W = room.width, L = room.length, H = room.ceiling > 0 ? room.ceiling : 96, N = 12;
+  const cam = camera.clone();
+  cam.aspect = size.w / size.h;
+  cam.updateProjectionMatrix();
+  cam.updateMatrixWorld();
+  const v = new THREE.Vector3();
+  // Screen box (0..1, y down) of the samples that land inside the frame, or null.
+  const seen = points => {
+    let x0 = 1, y0 = 1, x1 = 0, y1 = 0, any = false;
+    for (const [x, y, z] of points) {
+      v.set(x, y, z).project(cam);
+      if (v.z < -1 || v.z > 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1) continue;
+      const sx = (v.x + 1) / 2, sy = (1 - v.y) / 2;
+      x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+      any = true;
+    }
+    return any ? { x0: +x0.toFixed(3), y0: +y0.toFixed(3), x1: +x1.toFixed(3), y1: +y1.toFixed(3) } : null;
+  };
+  // A vertical rectangle from floor-plan point a to b, bottom to top.
+  const panel = (a, b, bottom, top) => {
+    const pts = [];
+    for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) {
+      const t = i / N, u = j / N;
+      pts.push([a[0] + (b[0] - a[0]) * t, bottom + (top - bottom) * u, a[1] + (b[1] - a[1]) * t]);
+    }
+    return pts;
+  };
+  const corner = { northwest: [0, 0], northeast: [W, 0], southeast: [W, L], southwest: [0, L] };
+  const wallEnds = {
+    north: [corner.northwest, corner.northeast], east: [corner.northeast, corner.southeast],
+    south: [corner.southeast, corner.southwest], west: [corner.southwest, corner.northwest],
+  };
+  return {
+    walls: Object.entries(wallEnds).map(([wall, [a, b]]) => ({ wall, screenBox: seen(panel(a, b, 0, H)) })),
+    corners: Object.entries(corner).map(([name, p]) => ({ corner: name, screenBox: seen(panel(p, p, 0, H)) })),
+    openings: (room.openings || []).map(o => {
+      const h = openingBox(o, L, H);
+      return { type: h.door ? 'doorway' : 'window', wall: o.wall, screenBox: seen(panel(h.a, h.b, h.bottom, h.top)) };
+    }),
+  };
+}
+
 // Which side of a piece faces the camera, said the way a photographer would. A group is rotated by
 // -rot about y, so its front (local -z) points along (sin rot, -cos rot) and its right along (cos rot, sin rot).
 function facingWords(it) {
@@ -855,6 +941,7 @@ function renderRequest() {
       quaternion: camera.quaternion.toArray().map(n => +n.toFixed(5)),
       fov: camera.fov, width: size.w, height: size.h,
       room: cameraFacts(room, size),
+      frame: frameFacts(room, size),
     },
     images: { beauty: captureImage(size.w, size.h), mask },
     room, colors: scene3d.colors,
@@ -931,10 +1018,13 @@ function savePrefs() {
 
 const hasImage = shot => !!(shot && shot.urls && shot.urls.renders && shot.urls.renders.length);
 
-// Selecting a shot is what the export buttons act on; a shot with a picture also fades over the view.
-function selectShot(shot) {
-  renderUI.shot = shot || null;
-  const overlay = $('#renderOverlay'), img = $('#renderImage'), image = hasImage(shot);
+const overlayOpen = () => !$('#renderOverlay').hidden;
+
+// Fades the selected shot's picture over the view, or closes it (the × and Esc). Closing leaves the
+// shot selected, so the export buttons still act on it.
+function showOverlay(on) {
+  const overlay = $('#renderOverlay'), img = $('#renderImage'), shot = renderUI.shot;
+  const image = on && hasImage(shot);
   $('#rFade').hidden = !image;
   if (image) {
     img.src = `/${shot.urls.renders[0]}`;
@@ -945,8 +1035,15 @@ function selectShot(shot) {
     overlay.hidden = true;
     img.removeAttribute('src');
   }
-  for (const el of $('#rShots').children) el.classList.toggle('on', el.dataset.name === (shot && shot.name));
-  const findings = $('#rFindings'), audit = (shot && shot.audit) || [];
+}
+
+// Selecting a shot is what the export buttons act on; a shot with a picture also fades over the view.
+function selectShot(shot) {
+  renderUI.shot = shot || null;
+  showOverlay(true);
+  for (const el of $('#shots').children) el.classList.toggle('on', el.dataset.name === (shot && shot.name));
+  // A Claude step that failed is listed first: otherwise its error only flashes past in the status line.
+  const findings = $('#rFindings'), audit = [...((shot && shot.warnings) || []), ...((shot && shot.audit) || [])];
   findings.replaceChildren(...audit.map(text => {
     const li = document.createElement('li');
     li.textContent = text;
@@ -956,22 +1053,48 @@ function selectShot(shot) {
   $('#rExportPrompt').disabled = $('#rExportZip').disabled = !shot;
 }
 
-function drawShots() {
-  const strip = $('#rShots');
-  strip.innerHTML = '';
-  for (const shot of renderUI.shots.slice(0, 12)) {
-    const image = hasImage(shot);
-    const tile = document.createElement(image ? 'img' : 'div');
-    if (image) tile.src = `/${shot.urls.renders[0]}`;
-    else { tile.className = 'brief'; tile.textContent = shot.error ? 'failed' : 'brief'; }
-    tile.dataset.name = shot.name;
-    tile.title = `${new Date(shot.created).toLocaleString()} · ${shot.provider}` +
-      (shot.error ? `\n${shot.error}` : '') +
-      '\nClick to select, double-click to stand here again';
-    tile.addEventListener('click', () => selectShot(shot === renderUI.shot ? null : shot));
-    tile.addEventListener('dblclick', () => { setPose(shot.pov); selectShot(shot); });
-    strip.append(tile);
+// The strip holds every render, but only builds tiles a batch at a time as it's scrolled towards the end.
+const SHOTS_BATCH = 24;
+const THUMB_H = 80;        // px, matches #shots img in the stylesheet
+
+function shotTile(shot) {
+  const image = hasImage(shot);
+  const tile = document.createElement(image ? 'img' : 'div');
+  if (image) { tile.src = `/${shot.urls.renders[0]}`; tile.loading = 'lazy'; }
+  else { tile.className = 'brief'; tile.textContent = shot.error ? 'failed' : 'brief'; }
+  // Sized from the capture before the picture loads, so the strip knows how far it reaches.
+  const pov = shot.pov || {};
+  if (pov.width > 0 && pov.height > 0) tile.style.width = `${Math.round(THUMB_H * pov.width / pov.height)}px`;
+  tile.dataset.name = shot.name;
+  tile.classList.toggle('on', shot === renderUI.shot || (renderUI.shot && renderUI.shot.name === shot.name));
+  tile.title = `${new Date(shot.created).toLocaleString()} · ${shot.provider}` +
+    (shot.error ? `\n${shot.error}` : '') +
+    '\nClick to select, double-click to stand here again';
+  tile.addEventListener('click', () => {
+    if (shot !== renderUI.shot) selectShot(shot);
+    else if (hasImage(shot) && !overlayOpen()) showOverlay(true); // selected but closed: open it again
+    else selectShot(null);
+  });
+  tile.addEventListener('dblclick', () => { setPose(shot.pov); selectShot(shot); });
+  return tile;
+}
+
+// Appends batches until the strip reaches past its right edge (or runs out of renders).
+function moreShots() {
+  const strip = $('#shots');
+  while (strip.childElementCount < renderUI.shots.length &&
+         strip.scrollLeft + strip.clientWidth > strip.scrollWidth - 400) {
+    const from = strip.childElementCount;
+    strip.append(...renderUI.shots.slice(from, from + SHOTS_BATCH).map(shotTile));
   }
+}
+
+function drawShots() {
+  const strip = $('#shots');
+  strip.replaceChildren();
+  strip.scrollLeft = 0;
+  strip.hidden = !renderUI.shots.length;
+  moreShots();
 }
 
 // Export prompt / Export zip: the server lifts the selected render out of renders/<name>/ into the
@@ -1061,6 +1184,16 @@ if (!STANDALONE) {
   $('#rGo').addEventListener('click', doRender);
   $('#rExportPrompt').addEventListener('click', () => exportShot('prompt'));
   $('#rExportZip').addEventListener('click', () => exportShot('zip'));
+  $('#renderClose').addEventListener('click', () => showOverlay(false));
+  // The strip scrolls sideways by itself: a plain wheel turns into horizontal scrolling there.
+  const strip = $('#shots');
+  strip.addEventListener('scroll', moreShots);
+  strip.addEventListener('wheel', e => {
+    if (e.ctrlKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return; // trackpads already scroll sideways
+    e.preventDefault();
+    strip.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? strip.clientWidth : 1);
+  }, { passive: false });
+  new ResizeObserver(moreShots).observe(strip);
   if (events) {
     events.addEventListener('render', e => {
       if (!renderUI.busy) return;
@@ -1079,7 +1212,6 @@ if (!STANDALONE) {
     if (prefs && ready.includes(prefs.provider)) $('#rProvider').value = prefs.provider;
     else if (ready.includes(config.defaultProvider)) $('#rProvider').value = config.defaultProvider;
     $('#renderPanel').hidden = false;
-    $('#frameGuide').hidden = false;
     layoutFrame();
     if (!ready.length) {
       // Without an image key the brief is still worth making, and exporting.
@@ -1092,7 +1224,6 @@ if (!STANDALONE) {
     }
     loadShots();
   }).catch(() => { /* opened without the server */ });
-  addEventListener('resize', layoutFrame);
 }
 
 // ==== Collapsible panels ====
@@ -1124,29 +1255,35 @@ let bounds = null;
 const keys = new Set();
 addEventListener('keydown', e => {
   if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return; // typing in the render panel
+  // With the mouse captured, the browser spends Esc on releasing it; the next Esc closes the render.
+  if (e.code === 'Escape' && !controls.isLocked && overlayOpen()) { showOverlay(false); return; }
   keys.add(e.code);
   if (e.code === 'KeyR') goHome();
   if (e.code === 'KeyC' && ceilingMesh) { showCeiling = !showCeiling; ceilingMesh.visible = showCeiling; }
   if (e.code === 'KeyH') toggleHud();
   if (e.code === 'KeyP' && !STANDALONE) doRender();
-  if (e.code === 'KeyV') selectShot(hasImage(renderUI.shot) ? null : renderUI.shots.find(hasImage));
+  if (e.code === 'KeyV') {
+    if (overlayOpen()) showOverlay(false);
+    else if (hasImage(renderUI.shot)) showOverlay(true);
+    else selectShot(renderUI.shots.find(hasImage));
+  }
   // Hold B to see the render alone, for a straight before-and-after against the geometry.
-  if (e.code === 'KeyB' && hasImage(renderUI.shot)) $('#renderImage').style.opacity = '1';
+  if (e.code === 'KeyB' && overlayOpen()) $('#renderImage').style.opacity = '1';
   if (e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', e => {
   keys.delete(e.code);
-  if (e.code === 'KeyB' && hasImage(renderUI.shot)) $('#renderImage').style.opacity = String(Number($('#rOpacity').value) / 100);
+  if (e.code === 'KeyB' && overlayOpen()) $('#renderImage').style.opacity = String(Number($('#rOpacity').value) / 100);
 });
 addEventListener('blur', () => keys.clear());
 
 // Mouse wheel walks like W/S: scrolling up is forward, down is back. Each notch queues a step that the
-// loop glides out over a few frames. Wheeling over the render panel still scrolls it, and Ctrl+wheel
-// is left to the browser's zoom.
+// loop glides out over a few frames. Only over the view itself: the rails and the render strip scroll,
+// and Ctrl+wheel is left to the browser's zoom.
 const WHEEL_STEP = 6;      // inches per notch (about 100px of wheel delta)
 let wheelDist = 0;
 addEventListener('wheel', e => {
-  if (e.ctrlKey || e.target?.closest?.('#renderPanel')) return;
+  if (e.ctrlKey || !e.target?.closest?.('#stage')) return;
   e.preventDefault();
   const px = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? innerHeight : 1);
   const boost = e.shiftKey ? 2.5 : 1;
