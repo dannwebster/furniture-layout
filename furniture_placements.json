@@ -1,6 +1,6 @@
 {
   "room_file": "room_layout.json",
-  "saved": "2026-09-27T01:10:17.973Z",
+  "saved": "2026-09-27T01:13:51.050Z",
   "units": "feet_inches",
   "coordinate_system": {
     "origin": "southwest_corner",
@@ -33,12 +33,12 @@
     "room_and_board/eos_42_swivel_chair": {
       "file": "furniture/room_and_board/eos_42_swivel_chair.json",
       "name": "Eos 42-inch Swivel Chair",
-      "x": "10' 6 11/16\"",
-      "y": "14' 5\"",
+      "x": "10' 1 11/16\"",
+      "y": "13' 10\"",
       "rotation": 225,
       "center": {
-        "x": "8' 1\"",
-        "y": "14' 5\""
+        "x": "7' 8\"",
+        "y": "13' 10\""
       }
     },
     "room_and_board/hudson_dresser": {

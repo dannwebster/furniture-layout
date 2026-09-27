@@ -481,6 +481,7 @@ function parseRoom(doc) {
     width: len('width'),
     length: len('length'),
     ceiling: len('ceiling_height'),
+    colors: isObj(doc.colors) ? doc.colors : {}, // names looked up in material_colors.json by the 3D view
     openings: [],
   };
   if (!(room.width > 0 && room.length > 0)) throw new Error('room.width and room.length are required');
@@ -1609,7 +1610,7 @@ function sceneMessage() {
   return {
     type: 'scene',
     colors: state.colors,
-    room: r && { width: r.width, length: r.length, ceiling: r.ceiling, openings: r.openings },
+    room: r && { width: r.width, length: r.length, ceiling: r.ceiling, colors: r.colors, openings: r.openings },
     items: state.items.map(it => ({
       id: it.id, name: it.name, label: it.label, type: it.type, isRug: it.isRug,
       width: it.width, depth: it.depth, height: it.height, x: it.x, y: it.y, rot: it.rot, doc: it.doc,

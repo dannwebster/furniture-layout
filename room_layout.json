@@ -13,6 +13,16 @@
     "ceiling_height": 108,
     "ceiling_height_feet": 9
   },
+  "colors": {
+    "walls": {
+      "north": "sage green",
+      "south": "sage green",
+      "east": "sage green",
+      "west": "sage green"
+    },
+    "ceiling": "white",
+    "floor": "maple"
+  },
   "openings": [
     {
       "type": "window",

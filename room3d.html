@@ -207,6 +207,7 @@ function disposeGroup(g) {
 // Room space: x east from the west wall, z south from the north wall (same as the 2D page's
 // screen coordinates), y up. The room file's openings are in room coordinates (y north).
 let roomGroup = null, ceilingMesh = null, showCeiling = true, roomKey = '', home = null;
+let roomUnmapped = new Set(); // room colour names missing from material_colors.json, shown with the furniture's
 
 function buildRoom(room) {
   if (roomGroup) disposeGroup(roomGroup);
@@ -214,16 +215,19 @@ function buildRoom(room) {
   scene.add(roomGroup);
   const W = room.width, L = room.length, H = room.ceiling > 0 ? room.ceiling : 96;
   const d = palette.defaults;
-  const wallMat = mat(d.wall, { rough: 0.95 });
+  // room_layout.json "colors": { walls: { north, south, east, west }, ceiling, floor }
+  const c = room.colors || {};
+  roomUnmapped = new Set();
+  const wallMat = name => mat(resolve([c.walls && c.walls[name]], 'wall', roomUnmapped), { rough: 0.95 });
 
-  const floorMat = mat(d.floor, { rough: 0.7 });
+  const floorMat = mat(resolve([c.floor], 'floor', roomUnmapped), { rough: 0.7 });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L), floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(W / 2, 0, L / 2);
   floor.receiveShadow = true;
   roomGroup.add(floor);
 
-  ceilingMesh = new THREE.Mesh(new THREE.PlaneGeometry(W + 2 * WALL, L + 2 * WALL), mat(d.ceiling, { rough: 1 }));
+  ceilingMesh = new THREE.Mesh(new THREE.PlaneGeometry(W + 2 * WALL, L + 2 * WALL), mat(resolve([c.ceiling], 'ceiling', roomUnmapped), { rough: 1 }));
   ceilingMesh.rotation.x = Math.PI / 2;
   ceilingMesh.position.set(W / 2, H, L / 2);
   ceilingMesh.visible = showCeiling;
@@ -241,10 +245,10 @@ function buildRoom(room) {
 
   // Each wall: the span it runs along, and a function turning (s0, s1, y0, y1) into a box.
   const walls = {
-    north: { from: -WALL, to: W + WALL, seg: (s0, s1, y0, y1) => box(roomGroup, wallMat, s0, y0, -WALL, s1, y1, 0) },
-    south: { from: -WALL, to: W + WALL, seg: (s0, s1, y0, y1) => box(roomGroup, wallMat, s0, y0, L, s1, y1, L + WALL) },
-    west: { from: 0, to: L, seg: (s0, s1, y0, y1) => box(roomGroup, wallMat, -WALL, y0, s0, 0, y1, s1) },
-    east: { from: 0, to: L, seg: (s0, s1, y0, y1) => box(roomGroup, wallMat, W, y0, s0, W + WALL, y1, s1) },
+    north: { from: -WALL, to: W + WALL, seg: (s0, s1, y0, y1) => box(roomGroup, wallMat('north'), s0, y0, -WALL, s1, y1, 0) },
+    south: { from: -WALL, to: W + WALL, seg: (s0, s1, y0, y1) => box(roomGroup, wallMat('south'), s0, y0, L, s1, y1, L + WALL) },
+    west: { from: 0, to: L, seg: (s0, s1, y0, y1) => box(roomGroup, wallMat('west'), -WALL, y0, s0, 0, y1, s1) },
+    east: { from: 0, to: L, seg: (s0, s1, y0, y1) => box(roomGroup, wallMat('east'), W, y0, s0, W + WALL, y1, s1) },
   };
   for (const [name, wall] of Object.entries(walls)) {
     const holes = openings.filter(h => h.o.wall === name).sort((p, q) => p.s0 - q.s0);
@@ -469,7 +473,7 @@ function buildFurniture(items) {
   if (furnitureGroup) disposeGroup(furnitureGroup);
   furnitureGroup = new THREE.Group();
   scene.add(furnitureGroup);
-  const unmapped = new Set();
+  const unmapped = new Set(roomUnmapped);
   for (const it of items) furnitureGroup.add(buildPiece(it, unmapped));
   const u = $('#unmapped');
   u.hidden = !unmapped.size;
