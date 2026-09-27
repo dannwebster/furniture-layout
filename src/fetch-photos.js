@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // Download product photos for every file under <data>/furniture/ and <data>/rugs/. No dependencies.
 //   node fetch-photos.js [filter...] [--data <dir>] [--force] [--out <dir>]
-// Photos land in <data>/photos/<same path as the product file, minus .json>/, e.g.
-//   photos/furniture/room_and_board/hudson_dresser/01-product.webp
+// Photos land in <output>/photos/<same path as the product file, minus .json>/, e.g.
+//   output/photos/furniture/room_and_board/hudson_dresser/01-product.webp
 // alongside a sources.json listing where each file came from. Re-runs skip photos already on disk
 // (by source URL); --force downloads everything again. Filters match against the product path.
-// --data (or the DATA_DIR env var) says where the product files live; default ../data.
+// --data (or DATA_DIR) says where the product files live, default ../data; --out overrides the
+// photo folder, which otherwise follows the output dir server.js would use (OUTPUT_DIR, else the
+// sibling output/ of a folder named "data", else <data>/output).
 'use strict';
 
 const crypto = require('crypto');
@@ -31,9 +33,22 @@ function optionValue(idx, flag) {
   if (!v || v.startsWith('-')) { console.error(`fetch-photos: ${flag} needs a directory`); process.exit(1); }
   return path.resolve(v);
 }
-const DATA_DIR = dataIdx >= 0 ? optionValue(dataIdx, argv[dataIdx])
-  : path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
-const OUT = outIdx >= 0 ? optionValue(outIdx, '--out') : path.join(DATA_DIR, 'photos');
+// Same rules as server.js: the data dir may be a project root holding data/, and generated files go
+// to the sibling output/ of a folder named "data", else to <data-dir>/output.
+function resolveDataDir(dir) {
+  if (fs.existsSync(path.join(dir, 'room_layout.json'))) return dir;
+  const nested = path.join(dir, 'data');
+  return fs.existsSync(path.join(nested, 'room_layout.json')) ? nested : dir;
+}
+function defaultOutputDir(dataDir) {
+  return path.basename(dataDir).toLowerCase() === 'data'
+    ? path.join(dataDir, '..', 'output')
+    : path.join(dataDir, 'output');
+}
+const DATA_DIR = resolveDataDir(dataIdx >= 0 ? optionValue(dataIdx, argv[dataIdx])
+  : path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data')));
+const OUTPUT_DIR = path.resolve(process.env.OUTPUT_DIR || defaultOutputDir(DATA_DIR));
+const OUT = outIdx >= 0 ? optionValue(outIdx, '--out') : path.join(OUTPUT_DIR, 'photos');
 // Filters are the bare words: drop every flag and the directory that follows --data / --out.
 const takenValues = new Set([dataIdx, outIdx].filter(i => i >= 0).map(i => i + 1));
 const filters = argv.filter((a, i) => !a.startsWith('-') && !takenValues.has(i));
@@ -277,12 +292,15 @@ async function processProduct(rel) {
 }
 
 (async () => {
+  // Absolute paths, not cwd-relative: the data project usually lives outside this repo.
+  console.log(`Reading products from ${DATA_DIR}`);
+  console.log(`Saving photos to ${OUT}`);
   let products = [];
   for (const d of PRODUCT_DIRS) products.push(...await listJson(d));
   if (filters.length) products = products.filter(rel => filters.some(f => rel.toLowerCase().includes(f.toLowerCase())));
   if (!products.length) { console.error('No product files matched.'); process.exit(1); }
 
-  console.log(`Fetching photos for ${products.length} product(s) into ${path.relative(process.cwd(), OUT) || '.'}${path.sep}`);
+  console.log(`Fetching photos for ${products.length} product(s)`);
   const started = Date.now();
   let failures = 0;
   await Promise.all(products.map(async rel => {

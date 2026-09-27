@@ -413,6 +413,7 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 
 const state = {
   room: null,          // parsed room_layout.json, see parseRoom()
+  dataDir: null,       // folder the server is reading, as it reported it (display only)
   orphans: {},         // saved placements for files not currently loaded; written back as-is
   products: [],        // one per furniture/rug file: { base, file, name, label, group, type, isRug, width, depth, height, price, initial }
   items: [],           // pieces in the room: product fields + { id, n, label, x, y, rot, placed }
@@ -642,7 +643,7 @@ function loadProject(files) {
       else products.push(parseFurniture(doc, f.path));
     } catch (err) { errors.push(`${f.path}: ${err.message}`); }
   }
-  if (!roomFile) errors.unshift(`${ROOM_FILE} not found in data/`);
+  if (!roomFile) errors.unshift(`${ROOM_FILE} not found in ${state.dataDir || 'the data folder'}`);
   if (errors.length) toast(errors.join(' · '), true);
   if (!room) { state.loadError = errors[0] || `could not read ${ROOM_FILE}`; refreshAll(); return false; }
   state.loadError = null;
@@ -1252,8 +1253,8 @@ function renderEmpty() {
   if (location.protocol === 'file:') {
     card.innerHTML = `<h2 style="margin-top:0">Start the server</h2>
       <p>This page is served by the Node app. In the project folder run:</p>
-      <p><kbd>npm start</kbd></p>
-      <p class="muted">It opens <b>http://127.0.0.1:3000/</b> and loads data/${ROOM_FILE} and everything under data/${FURNITURE_DIR}/ and data/${RUG_DIR}/.</p>`;
+      <p><kbd>npm start -- <i>&lt;data folder&gt;</i></kbd></p>
+      <p class="muted">It opens <b>http://127.0.0.1:3000/</b> and loads ${ROOM_FILE} and everything under ${FURNITURE_DIR}/ and ${RUG_DIR}/ from that folder.</p>`;
   } else if (state.loadError) {
     card.innerHTML = `<h2 style="margin-top:0">Couldn't load the project</h2>
       <p>${escapeHtml(state.loadError)}</p><p class="muted">Fix the file and it will reload automatically.</p>`;
@@ -1366,7 +1367,8 @@ async function fetchProject(announce = false) {
   try {
     const r = await fetch('/api/project', { cache: 'no-store' });
     if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
-    const { files } = await r.json();
+    const { files, dataDir } = await r.json();
+    state.dataDir = dataDir || null;
     if (loadProject(files) && announce) toast('Files changed — reloaded.');
   } catch (err) {
     if (!state.room) { state.loadError = `Could not reach the server: ${err.message}`; refreshAll(); }

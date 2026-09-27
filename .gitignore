@@ -12,8 +12,9 @@ desktop.ini
 node_modules/
 npm-debug.log*
 
-# Downloaded product photos (npm run photos)
-data/photos/
+# A data project checked out here (the real one lives outside this repo)
+/data/
+/output/
 
 # Temp files from server.js atomic writes
 *.tmp

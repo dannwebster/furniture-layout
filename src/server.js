@@ -3,8 +3,8 @@
 //   node server.js [data-dir] [--output <dir>] [--open]
 //   GET  /                 the layout page
 //   GET  /room3d.html      the 3D view (opened as a popup from the layout page)
-//   GET  /api/project      <data>/room_layout.json, <data>/material_colors.json, every .json under <data>/furniture/
-//                          and <data>/rugs/ (paths relative to the data dir), plus furniture_placements.json
+//   GET  /api/project      { dataDir, files }: room_layout.json, material_colors.json, every .json under
+//                          furniture/ and rugs/ (paths relative to the data dir), plus furniture_placements.json
 //   PUT  /api/placements   write <output>/furniture_placements.json (POST also accepted, for sendBeacon)
 //   GET  /api/events       server-sent events: "change" when data files change, "page" when a page changes
 // The data files live outside the program: pass the folder on the command line (or set DATA_DIR).
@@ -81,10 +81,6 @@ const args = parseArgs(process.argv.slice(2));
 if (args.help) { console.log(USAGE); process.exit(0); }
 
 const APP_DIR = __dirname;
-const DATA_DIR = path.resolve(args.data || process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
-const OUTPUT_DIR = path.resolve(args.output || process.env.OUTPUT_DIR || defaultOutputDir(DATA_DIR));
-const PORT = Number(process.env.PORT) || 3000;
-const HOST = process.env.HOST || '127.0.0.1';
 const PAGE_FILE = 'furniture-layout.html';
 const VIEW3D_FILE = 'room3d.html';
 const ROOM_FILE = 'room_layout.json';
@@ -92,6 +88,19 @@ const COLORS_FILE = 'material_colors.json';
 const PRODUCT_DIRS = ['furniture', 'rugs']; // under DATA_DIR; one JSON file per product, any depth
 const PLACEMENTS_FILE = 'furniture_placements.json'; // under OUTPUT_DIR
 const MAX_BODY = 1024 * 1024;
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || '127.0.0.1';
+
+// A data project that keeps its input in data/ (beside the output/ we write) can be named either
+// way: given the project root, descend into data/ when that's where the room file actually is.
+function resolveDataDir(dir) {
+  if (fs.existsSync(path.join(dir, ROOM_FILE))) return dir;
+  const nested = path.join(dir, 'data');
+  return fs.existsSync(path.join(nested, ROOM_FILE)) ? nested : dir;
+}
+
+const DATA_DIR = resolveDataDir(path.resolve(args.data || process.env.DATA_DIR || path.join(__dirname, '..', 'data')));
+const OUTPUT_DIR = path.resolve(args.output || process.env.OUTPUT_DIR || defaultOutputDir(DATA_DIR));
 
 // Fail loudly on a bad path rather than serving an empty room.
 try {
@@ -213,7 +222,8 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, await fsp.readFile(path.join(APP_DIR, VIEW3D_FILE)), 'text/html; charset=utf-8');
     }
     if (req.method === 'GET' && url.pathname === '/api/project') {
-      return send(res, 200, JSON.stringify({ files: await readProject() }), 'application/json; charset=utf-8');
+      const body = { dataDir: DATA_DIR, files: await readProject() };
+      return send(res, 200, JSON.stringify(body), 'application/json; charset=utf-8');
     }
     if ((req.method === 'PUT' || req.method === 'POST') && url.pathname === '/api/placements') {
       await writePlacements(await readBody(req));
