@@ -1,6 +1,6 @@
 {
   "room_file": "room_layout.json",
-  "saved": "2026-09-26T23:53:31.549Z",
+  "saved": "2026-09-27T00:11:52.773Z",
   "units": "feet_inches",
   "coordinate_system": {
     "origin": "southwest_corner",
@@ -8,6 +8,11 @@
     "y_axis": "north",
     "position": "x/y locate each piece's own origin (its back-left floor corner) in room coordinates",
     "rotation": "degrees clockwise viewed from above; 0 = front of the piece faces north (+y)"
+  },
+  "counts": {
+    "article/cooper_1_drawer_nightstand_walnut": 2,
+    "article/cooper_6_drawer_dresser_walnut": 1,
+    "article/cooper_king_low_profile_bed_walnut": 1
   },
   "placements": {
     "article/cooper_1_drawer_nightstand_walnut": {
@@ -20,6 +25,18 @@
       "center": {
         "x": "0' 7 1/8\"",
         "y": "11' 8\""
+      }
+    },
+    "article/cooper_1_drawer_nightstand_walnut#2": {
+      "file": "furniture/article/cooper_1_drawer_nightstand_walnut.json",
+      "name": "Cooper 1-Drawer Nightstand - Walnut",
+      "x": "0' 0\"",
+      "y": "4' 2 3/4\"",
+      "rotation": 90,
+      "front_faces": "east",
+      "center": {
+        "x": "0' 7 1/8\"",
+        "y": "3' 5\""
       }
     },
     "article/cooper_6_drawer_dresser_walnut": {

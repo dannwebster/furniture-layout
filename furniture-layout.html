@@ -48,11 +48,12 @@
   button:hover { border-color: #bdb4a8; background: #faf8f5; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.primary:hover { background: #1d4fd0; }
-  main { display: grid; grid-template-columns: 320px 1fr; min-height: 0; }
+  main { display: grid; grid-template-columns: 320px 1fr 290px; min-height: 0; }
   aside {
     background: var(--panel); border-right: 1px solid var(--line);
     overflow-y: auto; padding: 12px 14px 24px;
   }
+  aside.right { border-right: none; border-left: 1px solid var(--line); }
   .panel { margin-bottom: 18px; }
   .panel h2 {
     font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
@@ -69,7 +70,17 @@
   .item.bad .name { color: var(--danger); }
   .item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item .dims { color: var(--muted); font-size: 12px; white-space: nowrap; }
-  .item input { margin: 0; }
+  .item.none .name, .item.none .dims { opacity: .6; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex: none; }
+  .stepper button { border: none; border-radius: 0; padding: 1px 7px; font-size: 14px; line-height: 20px; background: #faf8f5; }
+  .stepper button:hover { background: #efe9e1; }
+  .stepper button:disabled { color: #c9c2b8; cursor: default; background: #faf8f5; }
+  .stepper input {
+    width: 28px; border: none; border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+    text-align: center; font: inherit; font-size: 13px; padding: 2px 0; -moz-appearance: textfield;
+  }
+  .stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .item.some .stepper input { font-weight: 700; color: var(--accent); }
   #inspector h3 { margin: 0 0 2px; font-size: 15px; }
   .fields { display: grid; gap: 8px; margin: 10px 0; }
   .fields label { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
@@ -114,7 +125,6 @@
   .floor { fill: var(--floor); }
   .opening-window { fill: var(--window); }
   .opening-door { fill: var(--floor); }
-  .door-swing { fill: rgba(37, 99, 235, 0.05); stroke: #9bb3e8; stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
   .opening-label { font-size: 4.2px; fill: var(--muted); text-anchor: middle; dominant-baseline: middle; }
   .grid-minor { stroke: #eee7dc; stroke-width: 1; vector-effect: non-scaling-stroke; }
   .grid-major { stroke: #ddd3c5; stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -162,25 +172,6 @@
       <div class="muted" id="sourceInfo"></div>
     </section>
 
-    <section class="panel" id="inspector" hidden>
-      <h2>Selected</h2>
-      <h3 id="insName"></h3>
-      <div class="muted" id="insMeta"></div>
-      <div class="fields">
-        <label>X — back-left corner, from west wall<input id="insX" autocomplete="off"></label>
-        <label>Y — back-left corner, from south wall<input id="insY" autocomplete="off"></label>
-        <label>Rotation — degrees clockwise (0 = front faces north)<input id="insRot" type="number" step="1"></label>
-      </div>
-      <div class="btnrow" id="rotButtons">
-        <button data-rot="-90">⟲ 90°</button>
-        <button data-rot="-15">⟲ 15°</button>
-        <button data-rot="15">⟳ 15°</button>
-        <button data-rot="90">⟳ 90°</button>
-      </div>
-      <div class="clearance" id="insClear"></div>
-      <button id="insRemove">Remove from layout</button>
-    </section>
-
     <section class="panel" id="warnings" hidden>
       <h2>Problems</h2>
       <ul></ul>
@@ -216,6 +207,7 @@
     <section class="panel">
       <h2>Controls</h2>
       <div class="help">
+        Use <b>−</b> / <b>+</b> in the furniture list to set how many of each piece are in the room.<br>
         Drag a piece to move it; edges snap to walls and other pieces.<br>
         Drag the round handle (front of the piece) to rotate in 15° steps.<br>
         <kbd>Alt</kbd> while dragging turns snapping off.<br>
@@ -235,6 +227,30 @@
       </div>
     </div>
   </section>
+
+  <aside class="right">
+    <section class="panel">
+      <h2>Selected</h2>
+      <div class="muted" id="insNone">Click a piece on the plan, or a name in the furniture list.</div>
+      <div id="inspector" hidden>
+        <h3 id="insName"></h3>
+        <div class="muted" id="insMeta"></div>
+        <div class="fields">
+          <label>X — back-left corner, from west wall<input id="insX" autocomplete="off"></label>
+          <label>Y — back-left corner, from south wall<input id="insY" autocomplete="off"></label>
+          <label>Rotation — degrees clockwise (0 = front faces north)<input id="insRot" type="number" step="1"></label>
+        </div>
+        <div class="btnrow" id="rotButtons">
+          <button data-rot="-90">⟲ 90°</button>
+          <button data-rot="-15">⟲ 15°</button>
+          <button data-rot="15">⟳ 15°</button>
+          <button data-rot="90">⟳ 90°</button>
+        </div>
+        <div class="clearance" id="insClear"></div>
+        <button id="insRemove">Remove this one</button>
+      </div>
+    </section>
+  </aside>
 </main>
 
 <div id="toast"></div>
@@ -249,6 +265,8 @@ const LS_PREFS = 'furnitureLayout.prefs';
 const EPS = 0.05;
 const WALL = 4;          // drawn wall thickness, inches
 const WINDOW_REACH = 6;  // a piece this close to a window wall counts as "in front of" the window
+const ENTRY_CLEARANCE = 24; // keep this much floor clear in front of a doorway
+const MAX_COUNT = 20;
 
 // ==== Feet / inches ====
 function evalNum(t) {
@@ -309,7 +327,8 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 
 const state = {
   room: null,          // parsed room_layout.json, see parseRoom()
-  items: [],           // { id, file, name, label, group, type, width, depth, height, price, x, y, rot, included }
+  products: [],        // one per furniture file: { base, file, name, label, group, type, isRug, width, depth, height, price, initial }
+  items: [],           // pieces in the room: product fields + { id, n, label, x, y, rot, placed }
   selectedId: null,
   snap: 1,
   showGrid: true,
@@ -343,7 +362,7 @@ const humanize = k => String(k).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.t
 const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const safeParse = t => { try { return t ? JSON.parse(t) : null; } catch { return null; } };
 const FACING = { 0: 'north', 90: 'east', 180: 'south', 270: 'west' };
-const isDoor = o => /door|entrance|entry/i.test(o.type);
+const isDoorway = o => /door|entrance|entry/i.test(o.type);
 const isWindow = o => /window/i.test(o.type);
 
 function unitFactor(units) {
@@ -409,28 +428,78 @@ function parseFurniture(doc, path) {
   const bb = isObj(doc.geometry) && isObj(doc.geometry.bounding_box) && isObj(doc.geometry.bounding_box.max) ? doc.geometry.bounding_box.max : {};
   const height = [d.height, bb.z, d.height_with_cushion, d.frame_height, d.pile_height].map(num).find(Number.isFinite);
   const isRug = /rug|carpet|mat$/i.test(String(fu.type || ''));
-  // id = path under furniture/ without extension, e.g. "room_and_board/hudson_dresser"
+  // base id = path under furniture/ without extension, e.g. "room_and_board/hudson_dresser"
   const base = path.replace(new RegExp(`^${FURNITURE_DIR}/`, 'i'), '').replace(/\.json$/i, '');
-  const qty = Math.max(1, parseInt(fu.quantity, 10) || 1);
   const label = fu.label || [fu.collection, fu.type].filter(Boolean).map(humanize).join(' ') || fu.name || humanize(base.split('/').pop());
-  const group = fu.manufacturer || humanize(base.includes('/') ? base.split('/')[0] : 'Furniture');
-  const price = parsePrice(isObj(doc.metadata) ? doc.metadata.price : null);
-  const out = [];
-  for (let n = 1; n <= qty; n++) {
-    out.push({
-      id: qty > 1 ? `${base}#${n}` : base,
-      file: path,
-      name: fu.name || label,
-      label: qty > 1 ? `${label} ${n}` : label,
-      group, type: String(fu.type || ''), isRug,
-      width, depth, height: Number.isFinite(height) ? height * f : null, price,
-      x: 0, y: 0, rot: 0,
-      // Several files are alternatives for the same spot, so pieces start unticked unless marked selected.
-      included: fu.selected === true,
-      placed: false,
+  return {
+    base, file: path,
+    name: fu.name || label,
+    label,
+    group: fu.manufacturer || humanize(base.includes('/') ? base.split('/')[0] : 'Furniture'),
+    type: String(fu.type || ''), isRug,
+    width, depth, height: Number.isFinite(height) ? height * f : null,
+    price: parsePrice(isObj(doc.metadata) ? doc.metadata.price : null),
+    // Several files are alternatives for the same spot, so the count starts at 0 unless marked selected.
+    initial: fu.selected === true ? Math.max(1, parseInt(fu.quantity, 10) || 1) : 0,
+  };
+}
+
+// ==== Products and their pieces ====
+// Piece n of a product has id "<base>" for n = 1 and "<base>#<n>" after that.
+const pieceId = (base, n) => n === 1 ? base : `${base}#${n}`;
+function splitPieceId(id) {
+  const m = /^(.*?)(?:#(\d+))?$/.exec(id);
+  return { base: m[1], n: m[2] ? Number(m[2]) : 1 };
+}
+const productByBase = base => state.products.find(p => p.base === base);
+const piecesOf = base => state.items.filter(it => it.base === base).sort((a, b) => a.n - b.n);
+const makePiece = (p, n) => ({ ...p, id: pieceId(p.base, n), n, label: p.label, x: 0, y: 0, rot: 0, placed: false });
+
+// Keep ids contiguous (1..count) and labels numbered only when a product has more than one piece.
+function renumber() {
+  const sel = selected();
+  for (const p of state.products) {
+    const list = piecesOf(p.base);
+    list.forEach((it, i) => {
+      it.n = i + 1;
+      it.id = pieceId(p.base, it.n);
+      it.label = list.length > 1 ? `${p.label} ${it.n}` : p.label;
     });
   }
-  return out;
+  state.selectedId = sel && state.items.includes(sel) ? sel.id : null;
+}
+
+function setCount(base, count) {
+  const p = productByBase(base);
+  if (!p) return;
+  count = Math.max(0, Math.min(MAX_COUNT, Math.floor(count) || 0));
+  const list = piecesOf(base);
+  if (count === list.length) return;
+  let added = null;
+  if (count > list.length) {
+    for (let n = list.length + 1; n <= count; n++) {
+      const it = makePiece(p, n);
+      state.items.push(it);
+      placeNewPiece(it, piecesOf(base).filter(o => o !== it).pop());
+      added = it;
+    }
+  } else {
+    const drop = new Set(list.slice(count));
+    state.items = state.items.filter(it => !drop.has(it));
+  }
+  renumber();
+  if (added) state.selectedId = added.id;
+  buildScene();
+  refreshAll();
+  commit();
+}
+
+function removePiece(it) {
+  state.items = state.items.filter(o => o !== it);
+  renumber();
+  buildScene();
+  refreshAll();
+  commit();
 }
 
 // metadata.price: { currency, configured_price } (also accepts amount / display) -> { amount, currency, text }
@@ -454,7 +523,7 @@ const isFurniturePath = p => p.toLowerCase().startsWith(FURNITURE_DIR + '/') && 
 function loadProject(files) {
   const errors = [];
   let room = null, placementsDoc = null;
-  const items = [];
+  const products = [];
   const roomFile = files.find(f => f.path.toLowerCase() === ROOM_FILE);
   for (const f of files) {
     const isRoom = f === roomFile, isPlacements = f.path.toLowerCase() === PLACEMENTS_FILE;
@@ -464,7 +533,7 @@ function loadProject(files) {
     try {
       if (isRoom) room = parseRoom(doc);
       else if (isPlacements) placementsDoc = doc;
-      else items.push(...parseFurniture(doc, f.path));
+      else products.push(parseFurniture(doc, f.path));
     } catch (err) { errors.push(`${f.path}: ${err.message}`); }
   }
   if (!roomFile) errors.unshift(`${ROOM_FILE} not found next to server.js`);
@@ -472,42 +541,99 @@ function loadProject(files) {
   if (!room) { state.loadError = errors[0] || `could not read ${ROOM_FILE}`; refreshAll(); return false; }
   state.loadError = null;
 
-  // Keep positions of pieces already on screen (e.g. after "Reload files").
-  const prev = new Map(state.items.map(it => [it.id, it]));
+  // Which pieces exist, and where: on-screen pieces win (a live reload), then the saved
+  // placements file, then each product's initial count at default positions.
   const sameRoom = state.room && state.room.width === room.width && state.room.length === room.length;
-  for (const it of items) {
-    const p = sameRoom && prev.get(it.id);
-    if (p) Object.assign(it, { x: p.x, y: p.y, rot: p.rot, included: p.included, placed: true });
+  const onScreen = sameRoom && state.products.length ? groupBy(state.items, it => it.base) : null;
+  const saved = placementsDoc ? savedPlacements(placementsDoc) : null;
+  const items = [];
+  for (const p of products) {
+    const prev = onScreen ? onScreen.get(p.base) || [] : null;
+    const stored = saved ? saved.get(p.base) || [] : null;
+    const count = prev ? prev.length : stored ? stored.length : p.initial;
+    for (let n = 1; n <= count; n++) {
+      const it = makePiece(p, n);
+      const from = prev ? prev[n - 1] : null;
+      if (from) Object.assign(it, { x: from.x, y: from.y, rot: from.rot, placed: true });
+      else if (stored && stored[n - 1]) { it.pending = stored[n - 1]; }
+      items.push(it);
+    }
   }
+  const selectedBefore = state.selectedId;
   state.room = room;
+  state.products = products;
   state.items = items;
-
-  if (placementsDoc) applyPlacements(placementsDoc, true);
-  defaultPlacement(items.filter(it => !it.placed));
-  if (!byId(state.selectedId)) state.selectedId = null;
-  $('#sourceInfo').textContent = `Loaded ${ROOM_FILE} + ${new Set(items.map(i => i.file)).size} furniture file(s)` +
+  for (const it of items) {
+    if (!it.pending) continue;
+    setFromRoomOrigin(it, it.pending.x, it.pending.y, it.pending.rot);
+    it.placed = true;
+    delete it.pending;
+  }
+  // Beds first so nightstands can be put beside them.
+  const isBed = it => /bed/i.test(it.type) ? 1 : 0;
+  for (const it of items.filter(i => !i.placed).sort((a, b) => isBed(b) - isBed(a))) placeNewPiece(it);
+  renumber();
+  state.selectedId = byId(selectedBefore) ? selectedBefore : null;
+  $('#sourceInfo').textContent = `Loaded ${ROOM_FILE} + ${products.length} furniture file(s)` +
     (placementsDoc ? ` + ${PLACEMENTS_FILE}` : '');
+  buildList();
   buildScene();
   renderRoomPanel();
   refreshAll();
   return true;
 }
 
-// New pieces: beds against the west wall, storage along the east wall, anything else mid-room.
-function defaultPlacement(list) {
-  const { width: W, length: L } = state.room;
-  let yCursor = L * 0.35;
-  for (const it of list) {
-    if (/bed/i.test(it.type)) {
-      Object.assign(it, { rot: 90, x: it.depth / 2, y: L / 2 });
-    } else if (/dresser|chest|bookcase|shel|cabinet/i.test(it.type)) {
-      Object.assign(it, { rot: 270, x: W - it.depth / 2, y: Math.min(yCursor, L - it.width / 2) });
-      yCursor += it.width + 12;
-    } else {
-      Object.assign(it, { rot: 0, x: W / 2, y: L / 2 });
-    }
-    it.placed = true;
+function groupBy(list, key) {
+  const m = new Map();
+  for (const x of list) { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }
+  return m;
+}
+
+// placements file -> Map(base -> [{ x, y, rot }] in piece order). Accepts older "#1"-style ids.
+function savedPlacements(doc) {
+  const out = new Map();
+  const pl = isObj(doc.placements) ? doc.placements : {};
+  for (const [id, p] of Object.entries(pl)) {
+    if (!isObj(p)) continue;
+    const x = parseFI(p.x), y = parseFI(p.y), r = num(p.rotation);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const { base, n } = splitPieceId(id);
+    if (!out.has(base)) out.set(base, []);
+    out.get(base).push({ n, x, y, rot: Number.isFinite(r) ? r : 0 });
   }
+  for (const list of out.values()) list.sort((a, b) => a.n - b.n);
+  return out;
+}
+
+// Default spot for a new piece. Nightstands go flush beside the bed's headboard, alternating sides;
+// beds against the west wall; storage along the east wall; extra copies next to the previous one.
+function placeNewPiece(it, previous) {
+  const { width: W, length: L } = state.room;
+  const others = state.items.filter(o => o !== it && o.placed);
+  const beds = others.filter(o => /bed/i.test(o.type));
+  const fits = () => !outsideRoom(it) && !others.some(o => !o.isRug && overlaps(it, o));
+  if (/night/i.test(it.type) && beds.length) {
+    // Try each side of each bed's headboard; take the first free spot, else the first spot.
+    const spots = beds.flatMap(bed => [-1, 1].map(side => ({
+      rot: bed.rot, xy: localToScreen(bed, side * (bed.width / 2 + it.width / 2), bed.depth / 2 - it.depth / 2),
+    })));
+    const free = spots.find(s => { Object.assign(it, { rot: s.rot, x: s.xy[0], y: s.xy[1] }); return fits(); }) || spots[0];
+    Object.assign(it, { rot: free.rot, x: free.xy[0], y: free.xy[1] });
+  } else if (previous) {
+    // Beside the previous copy, along its width; flip sides if that runs off the floor.
+    Object.assign(it, { rot: previous.rot });
+    for (const dir of [1, -1]) {
+      [it.x, it.y] = localToScreen(previous, dir * (previous.width + 2), 0);
+      if (!outsideRoom(it)) break;
+    }
+  } else if (/bed/i.test(it.type)) {
+    Object.assign(it, { rot: 90, x: it.depth / 2, y: L / 2 });
+  } else if (/dresser|chest|bookcase|shel|cabinet/i.test(it.type)) {
+    Object.assign(it, { rot: 270, x: W - it.depth / 2, y: L * 0.35 });
+  } else {
+    Object.assign(it, { rot: 0, x: W / 2, y: L / 2 });
+  }
+  it.placed = true;
 }
 
 // ==== Geometry ====
@@ -557,27 +683,19 @@ function outsideRoom(it) {
   return corners(it).some(([x, y]) => x < -EPS || y < -EPS || x > state.room.width + EPS || y > state.room.length + EPS);
 }
 
-// Opening geometry in screen coordinates: span along its wall, the inward normal, and the door hinge.
+// Opening geometry in screen coordinates: its two ends on the wall and the inward normal.
 function openingGeom(o) {
   const L = state.room.length;
   const a = [o.x1, L - o.y1], b = [o.x2, L - o.y2];
   const inward = { north: [0, 1], south: [0, -1], west: [1, 0], east: [-1, 0] }[o.wall] || [0, 1];
-  // Hinge at the end nearest the named corner (e.g. "northwest"), otherwise at the start point.
-  let hinge = a, free = b;
-  if (o.corner) {
-    const cx = /west/.test(o.corner) ? 0 : /east/.test(o.corner) ? state.room.width : null;
-    const cy = /north/.test(o.corner) ? 0 : /south/.test(o.corner) ? L : null;
-    const dist = p => Math.hypot(cx === null ? 0 : p[0] - cx, cy === null ? 0 : p[1] - cy);
-    if (dist(b) < dist(a)) { hinge = b; free = a; }
-  }
-  return { a, b, inward, hinge, free };
+  return { a, b, inward };
 }
 
-// Square in front of a door that its swing sweeps (radius = door width).
-function doorSwingZone(o) {
-  const { hinge, free, inward } = openingGeom(o);
-  const r = o.width;
-  const pts = [hinge, free, [free[0] + inward[0] * r, free[1] + inward[1] * r], [hinge[0] + inward[0] * r, hinge[1] + inward[1] * r]];
+// Floor strip in front of a doorway (opening width x ENTRY_CLEARANCE) that should stay clear.
+function entryZone(o) {
+  const { a, b, inward } = openingGeom(o);
+  const pts = [a, b, [a[0] + inward[0] * ENTRY_CLEARANCE, a[1] + inward[1] * ENTRY_CLEARANCE],
+    [b[0] + inward[0] * ENTRY_CLEARANCE, b[1] + inward[1] * ENTRY_CLEARANCE]];
   const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
   const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
   return { x: (minX + maxX) / 2, y: (minY + maxY) / 2, width: maxX - minX, depth: maxY - minY, rot: 0 };
@@ -601,7 +719,7 @@ function snapPosition(it, x, y, threshold) {
   const { hx, hy } = halfExtents(it);
   const xs = [0, state.room.width], ys = [0, state.room.length];
   for (const o of state.items) {
-    if (o === it || !o.included) continue;
+    if (o === it) continue;
     const b = bbox(o);
     xs.push(b.minX, b.maxX); ys.push(b.minY, b.maxY);
   }
@@ -635,7 +753,7 @@ function el(tag, attrs = {}, parent) {
 }
 
 function drawOpening(o, layer) {
-  const { a, b, inward, hinge, free } = openingGeom(o);
+  const { a, b, inward } = openingGeom(o);
   const minX = Math.min(a[0], b[0]), maxX = Math.max(a[0], b[0]);
   const minY = Math.min(a[1], b[1]), maxY = Math.max(a[1], b[1]);
   // The opening cuts through the wall band just outside the floor.
@@ -643,14 +761,6 @@ function drawOpening(o, layer) {
   const r = out[1] ? { x: minX, y: out[1] < 0 ? -WALL : maxY, width: maxX - minX, height: WALL }
                    : { x: out[0] < 0 ? -WALL : maxX, y: minY, width: WALL, height: maxY - minY };
   el('rect', { class: isWindow(o) ? 'opening-window' : 'opening-door', ...r }, layer);
-
-  if (isDoor(o)) {
-    const rr = o.width;
-    const open = [hinge[0] + inward[0] * rr, hinge[1] + inward[1] * rr];
-    const u = [free[0] - hinge[0], free[1] - hinge[1]];
-    const sweep = u[0] * inward[1] - u[1] * inward[0] > 0 ? 1 : 0;
-    el('path', { class: 'door-swing', d: `M ${hinge[0]} ${hinge[1]} L ${free[0]} ${free[1]} A ${rr} ${rr} 0 0 ${sweep} ${open[0]} ${open[1]} Z` }, layer);
-  }
 
   const text = isWindow(o)
     ? `${humanize(o.type)} ${fmtShort(o.width)}${o.sill !== null ? ` · sill ${fmtShort(o.sill)}` : ''}`
@@ -724,7 +834,6 @@ function updatePiece(it) {
   const p = pieceEls.get(it.id);
   if (!p) return;
   p.g.setAttribute('transform', `translate(${it.x} ${it.y}) rotate(${it.rot})`);
-  p.g.style.display = it.included ? '' : 'none';
   p.g.classList.toggle('selected', it.id === state.selectedId);
   // Keep the label upright and sized to the piece's on-screen footprint.
   const { hx, hy } = halfExtents(it);
@@ -741,13 +850,15 @@ function updateProblems() {
   const msgs = [];
   const bad = new Set();
   const flag = (it, msg) => { bad.add(it.id); msgs.push(msg); };
-  const inc = state.items.filter(it => it.included);
+  const inc = state.items;
   if (state.room) {
     for (const it of inc) {
       if (outsideRoom(it)) flag(it, `${it.label} extends past a wall`);
       if (state.room.ceiling > 0 && it.height > state.room.ceiling) flag(it, `${it.label} is taller than the ${fmtFI(state.room.ceiling)} ceiling`);
       for (const o of state.room.openings) {
-        if (isDoor(o) && !it.isRug && overlaps(it, doorSwingZone(o))) flag(it, `${it.label} blocks the ${o.wall} ${o.type.toLowerCase()} swing`);
+        if (isDoorway(o) && !it.isRug && overlaps(it, entryZone(o))) {
+          flag(it, `${it.label} is within ${fmtShort(ENTRY_CLEARANCE)} of the ${o.wall} ${o.type.toLowerCase()}`);
+        }
         if (isWindow(o) && o.sill !== null && it.height > o.sill + EPS && inFrontOfWindow(it, o)) {
           flag(it, `${it.label} (${fmtFI(it.height)} tall) rises above the ${o.wall} window sill (${fmtFI(o.sill)})`);
         }
@@ -766,14 +877,15 @@ function updateProblems() {
   const box = $('#warnings');
   box.hidden = !msgs.length;
   box.querySelector('ul').innerHTML = msgs.map(m => `<li>${escapeHtml(m)}</li>`).join('');
-  document.querySelectorAll('#itemList .item').forEach(row => row.classList.toggle('bad', bad.has(row.dataset.id)));
+  const badBases = new Set(state.items.filter(it => bad.has(it.id)).map(it => it.base));
+  document.querySelectorAll('#itemList .item').forEach(row => row.classList.toggle('bad', badBases.has(row.dataset.base)));
 }
 
 function updateOverlay() {
   if (!overlayLayer) return;
   overlayLayer.replaceChildren();
   const it = selected();
-  if (!it || !it.included) return;
+  if (!it) return;
   const b = bbox(it), W = state.room.width, L = state.room.length;
   if (it.rot % 90) el('rect', { class: 'bbox', x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY }, overlayLayer);
   const line = (x1, y1, x2, y2, dist) => {
@@ -819,45 +931,63 @@ function renderRoomPanel() {
   $('#roomFacts').innerHTML = html;
 }
 
-function renderList() {
+// One row per furniture file with a count stepper. Built once per load; updateList() refreshes it
+// in place so the stepper keeps focus while you click it.
+function buildList() {
   const list = $('#itemList');
-  if (!state.items.length) {
-    list.innerHTML = `<div class="muted">${state.room ? `No furniture found in ${FURNITURE_DIR}/.` : 'No project folder loaded.'}</div>`;
+  if (!state.products.length) {
+    list.innerHTML = `<div class="muted">${state.room ? `No furniture found in ${FURNITURE_DIR}/.` : 'Not loaded yet.'}</div>`;
     return;
   }
-  const groups = new Map();
-  for (const it of state.items) { if (!groups.has(it.group)) groups.set(it.group, []); groups.get(it.group).push(it); }
   let html = '';
-  for (const [group, items] of groups) {
+  for (const [group, products] of groupBy(state.products, p => p.group)) {
     html += `<div class="group-title">${escapeHtml(group)}</div>`;
-    for (const it of items) {
-      const cls = ['item', it.id === state.selectedId ? 'selected' : '', state.problems.has(it.id) ? 'bad' : ''].join(' ');
-      const tip = [it.name, it.price && it.price.text, it.file].filter(Boolean).join(' · ');
-      html += `<div class="${cls}" data-id="${escapeHtml(it.id)}" title="${escapeHtml(tip)}">
-        <input type="checkbox" ${it.included ? 'checked' : ''} title="Include in layout">
-        <span class="name">${escapeHtml(it.label)}</span>
-        <span class="dims">${fmtIn(it.width)} × ${fmtIn(it.depth)}</span></div>`;
+    for (const p of products) {
+      const tip = [p.name, p.price && p.price.text, p.file].filter(Boolean).join(' · ');
+      html += `<div class="item" data-base="${escapeHtml(p.base)}" title="${escapeHtml(tip)}">
+        <span class="stepper">
+          <button type="button" data-step="-1" aria-label="Fewer">−</button>
+          <input type="number" min="0" max="${MAX_COUNT}" step="1" value="0" aria-label="How many in the room">
+          <button type="button" data-step="1" aria-label="More">+</button>
+        </span>
+        <span class="name">${escapeHtml(p.label)}</span>
+        <span class="dims">${fmtIn(p.width)} × ${fmtIn(p.depth)}</span></div>`;
     }
   }
-  const chosen = state.items.filter(it => it.included);
-  if (!chosen.length) html += '<div class="muted" style="margin-top:8px">Tick pieces to add them to the room.</div>';
-  else {
-    const priced = chosen.filter(it => it.price);
-    const total = priced.reduce((s, it) => s + it.price.amount, 0);
-    html += `<div class="total">${chosen.length} in room · total <b>${fmtMoney(total)}</b>` +
-      (priced.length < chosen.length ? ` <span class="muted">(${chosen.length - priced.length} unpriced)</span>` : '') + '</div>';
-  }
-  list.innerHTML = html;
+  list.innerHTML = html + '<div class="total" id="listTotal"></div>';
+}
+
+function updateList() {
+  const sel = selected();
+  document.querySelectorAll('#itemList .item').forEach(row => {
+    const count = piecesOf(row.dataset.base).length;
+    const inp = row.querySelector('input');
+    if (document.activeElement !== inp || Number(inp.value) !== count) inp.value = count;
+    row.querySelector('[data-step="-1"]').disabled = count === 0;
+    row.querySelector('[data-step="1"]').disabled = count >= MAX_COUNT;
+    row.classList.toggle('some', count > 0);
+    row.classList.toggle('none', count === 0);
+    row.classList.toggle('selected', !!sel && sel.base === row.dataset.base);
+  });
+  const total = $('#listTotal');
+  if (!total) return;
+  const inRoom = state.items;
+  if (!inRoom.length) { total.innerHTML = '<span class="muted">Use + to add pieces to the room.</span>'; return; }
+  const priced = inRoom.filter(it => it.price);
+  const sum = priced.reduce((s, it) => s + it.price.amount, 0);
+  total.innerHTML = `${inRoom.length} in room · total <b>${fmtMoney(sum)}</b>` +
+    (priced.length < inRoom.length ? ` <span class="muted">(${inRoom.length - priced.length} unpriced)</span>` : '');
 }
 
 function renderInspector() {
   const it = selected();
-  const box = $('#inspector');
-  box.hidden = !it || !it.included;
-  if (box.hidden) return;
+  $('#inspector').hidden = !it;
+  $('#insNone').hidden = !!it;
+  if (!it) return;
+  const count = piecesOf(it.base).length;
   $('#insName').textContent = it.label;
-  $('#insMeta').textContent = [it.name, `${fmtFI(it.width)} W × ${fmtFI(it.depth)} D` + (it.height ? ` × ${fmtFI(it.height)} H` : ''), it.price && it.price.text]
-    .filter(Boolean).join(' · ');
+  $('#insMeta').textContent = [it.name, `${fmtFI(it.width)} W × ${fmtFI(it.depth)} D` + (it.height ? ` × ${fmtFI(it.height)} H` : ''),
+    it.price && it.price.text, count > 1 ? `${it.n} of ${count}` : null].filter(Boolean).join(' · ');
   const setVal = (sel, v) => { const inp = $(sel); if (document.activeElement !== inp) { inp.value = v; inp.classList.remove('invalid'); } };
   const o = roomOrigin(it);
   setVal('#insX', fmtFI(o.x));
@@ -907,7 +1037,7 @@ function refreshAll() {
       (state.room.ceiling > 0 ? ` · ${fmtFI(state.room.ceiling)} ceiling` : '');
     state.items.forEach(updatePiece);
   }
-  renderList();
+  updateList();
   updateProblems();
   updateOverlay();
   renderInspector();
@@ -926,7 +1056,7 @@ function select(id) {
   const p = id && pieceEls.get(id);
   if (p) p.layer.appendChild(p.g); // bring to front of its layer
   for (const [pid, pe] of pieceEls) pe.g.classList.toggle('selected', pid === id);
-  document.querySelectorAll('#itemList .item').forEach(r => r.classList.toggle('selected', r.dataset.id === id));
+  updateList();
   updateOverlay();
   renderInspector();
 }
@@ -935,7 +1065,7 @@ function select(id) {
 function buildPlacements() {
   const cs = state.room.coordinate_system;
   const placements = {};
-  for (const it of state.items.filter(i => i.included)) {
+  for (const it of [...state.items].sort((a, b) => a.base.localeCompare(b.base) || a.n - b.n)) {
     const o = roomOrigin(it);
     placements[it.id] = {
       file: it.file,
@@ -956,30 +1086,12 @@ function buildPlacements() {
       position: "x/y locate each piece's own origin (its back-left floor corner) in room coordinates",
       rotation: 'degrees clockwise viewed from above; 0 = front of the piece faces north (+y)',
     },
+    counts: Object.fromEntries(state.products.map(p => [p.base, piecesOf(p.base).length]).filter(([, n]) => n > 0)),
     placements,
-    not_placed: state.items.filter(i => !i.included).map(i => i.id),
+    not_placed: state.products.filter(p => !piecesOf(p.base).length).map(p => p.base),
   };
 }
 const placementsText = () => JSON.stringify(buildPlacements(), null, 2) + '\n';
-
-// onlyUnplaced: don't override pieces that already have on-screen positions.
-function applyPlacements(doc, onlyUnplaced = false) {
-  const pl = isObj(doc && doc.placements) ? doc.placements : {};
-  for (const [id, p] of Object.entries(pl)) {
-    const it = byId(id);
-    if (!it || !isObj(p) || (onlyUnplaced && it.placed)) continue;
-    const x = parseFI(p.x), y = parseFI(p.y), r = num(p.rotation);
-    if (Number.isFinite(x) && Number.isFinite(y)) {
-      setFromRoomOrigin(it, x, y, Number.isFinite(r) ? r : 0);
-      it.included = true;
-      it.placed = true;
-    }
-  }
-  if (Array.isArray(doc && doc.not_placed)) for (const id of doc.not_placed) {
-    const it = byId(String(id));
-    if (it && !(onlyUnplaced && it.placed)) { it.included = false; it.placed = true; }
-  }
-}
 
 // ==== Saving ====
 // Changes are debounced and written through the server one at a time, newest state wins.
@@ -1096,7 +1208,7 @@ function rotateBy(it, deg) {
 document.addEventListener('keydown', e => {
   if (e.target instanceof Element && e.target.matches('input, select, textarea')) return;
   const it = selected();
-  if (!it || !it.included) return;
+  if (!it) return;
   const step = e.shiftKey ? 12 : e.altKey ? 0.25 : (state.snap || 1);
   switch (e.key) {
     case 'ArrowLeft': it.x -= step; break;
@@ -1106,7 +1218,7 @@ document.addEventListener('keydown', e => {
     case 'r': case 'R': rotateBy(it, e.shiftKey ? -90 : 90); e.preventDefault(); return;
     case '[': rotateBy(it, -15); return;
     case ']': rotateBy(it, 15); return;
-    case 'Delete': case 'Backspace': setIncluded(it, false); e.preventDefault(); return;
+    case 'Delete': case 'Backspace': removePiece(it); e.preventDefault(); return;
     case 'Escape': select(null); return;
     default: return;
   }
@@ -1115,21 +1227,25 @@ document.addEventListener('keydown', e => {
   commit();
 });
 
-function setIncluded(it, on) {
-  it.included = on;
-  state.selectedId = on ? it.id : (state.selectedId === it.id ? null : state.selectedId);
-  refreshAll();
-  if (on) select(it.id);
-  commit();
-}
-
+// Stepper buttons change the count; clicking the rest of a row selects that product's pieces in turn.
 $('#itemList').addEventListener('click', e => {
   const row = e.target.closest('.item');
   if (!row) return;
-  const it = byId(row.dataset.id);
-  if (e.target.matches('input[type=checkbox]')) { setIncluded(it, e.target.checked); return; }
-  if (!it.included) { setIncluded(it, true); return; }
-  select(it.id);
+  const base = row.dataset.base;
+  const step = e.target.closest('button[data-step]');
+  if (step) { setCount(base, piecesOf(base).length + Number(step.dataset.step)); return; }
+  if (e.target.closest('.stepper')) return;
+  const list = piecesOf(base);
+  if (!list.length) { setCount(base, 1); return; }
+  const cur = list.findIndex(it => it.id === state.selectedId);
+  select(list[(cur + 1) % list.length].id);
+});
+$('#itemList').addEventListener('change', e => {
+  const row = e.target.closest('.item');
+  if (row && e.target.matches('.stepper input')) setCount(row.dataset.base, Number(e.target.value));
+});
+$('#itemList').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.matches('.stepper input')) e.target.blur();
 });
 
 function bindOrigin(sel, axis) {
@@ -1161,7 +1277,7 @@ $('#rotButtons').addEventListener('click', e => {
   const b = e.target.closest('button[data-rot]'); const it = selected();
   if (b && it) rotateBy(it, Number(b.dataset.rot));
 });
-$('#insRemove').addEventListener('click', () => { const it = selected(); if (it) setIncluded(it, false); });
+$('#insRemove').addEventListener('click', () => { const it = selected(); if (it) removePiece(it); });
 
 $('#btnReload').addEventListener('click', () => fetchProject(true));
 $('#saveStatus').addEventListener('click', e => { if (e.target.id === 'btnRetry') { state.saveError = null; commit(); } });
