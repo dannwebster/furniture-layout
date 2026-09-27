@@ -180,10 +180,10 @@ function rnbLeaves(selector) {
 // or materials, most specific first.
 function rnbMatches(leaves, doc) {
   const text = norm([doc.furniture?.name, doc.furniture?.size, ...strings(doc.materials || {})].join(' '));
-  const words = leaf => leaf.path.map(t => norm(t).replace(/rug$/, '')).filter(Boolean);
   return leaves
-    .filter(l => words(l).length && words(l).every(w => text.includes(w)))
-    .map(l => ({ ...l, score: words(l).join('').length }))
+    .map(l => ({ ...l, words: l.path.map(t => norm(t).replace(/rug$/, '')).filter(Boolean) }))
+    .filter(l => l.words.length && l.words.every(w => text.includes(w)))
+    .map(l => ({ ...l, score: l.words.join('').length }))
     .sort((a, b) => b.score - a.score);
 }
 
@@ -309,7 +309,8 @@ async function processProduct(rel) {
   }
   const { title, config, photos: found } = scraped;
   // Finish words from the file that the page's configuration doesn't mention (wrong colour or wood).
-  const mismatch = config ? finishWords(doc).filter(w => !norm(config).includes(norm(w))) : [];
+  const configText = norm(config);
+  const mismatch = config ? finishWords(doc).filter(w => !configText.includes(norm(w))) : [];
   const seen = new Set();
   const unique = found.filter(p => !seen.has(p.url) && seen.add(p.url));
   // By default keep only the main render; --all adds details, dimensions, room scenes and galleries.

@@ -1374,6 +1374,13 @@ function buildPlacements() {
 }
 const placementsText = () => JSON.stringify(buildPlacements(), null, 2) + '\n';
 
+// fetch() that throws the server's error text (or the status) on a non-2xx response.
+async function fetchOk(url, init) {
+  const r = await fetch(url, init);
+  if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+  return r;
+}
+
 // ==== Saving ====
 // Changes are debounced and written through the server one at a time, newest state wins.
 let saveTimer, saveChain = Promise.resolve();
@@ -1391,8 +1398,7 @@ async function writePlacements() {
     state.dirty = false;
     if (EMBEDDED) saveLocal();
     else {
-      const r = await fetch('/api/placements', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: placementsText() });
-      if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+      await fetchOk('/api/placements', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: placementsText() });
     }
     state.lastSaved = new Date();
     state.saveError = null;
@@ -1421,8 +1427,9 @@ function buildExport() {
   const sums = {};
   let unpriced = 0;
   // Only products that are in the room; the alternatives left at 0 aren't part of the layout.
-  const products = state.products.filter(p => piecesOf(p.base).length).map(p => {
+  const products = state.products.map(p => {
     const count = piecesOf(p.base).length;
+    if (!count) return null;
     if (p.price) sums[p.price.currency] = (sums[p.price.currency] || 0) + p.price.amount * count;
     else unpriced += count;
     return {
@@ -1430,7 +1437,7 @@ function buildExport() {
       color: p.color, price: p.price ? { amount: p.price.amount, currency: p.price.currency } : null,
       count, photo: state.photos[p.file.replace(/\.json$/i, '')] || null, doc: p.doc,
     };
-  });
+  }).filter(Boolean);
   return {
     exported: new Date().toISOString(),
     data_dir: state.dataDir,
@@ -1492,19 +1499,15 @@ async function renderPlanPng() {
   }
 }
 
+const exportText = () => JSON.stringify(buildExport(), null, 2) + '\n';
+
 async function saveExport(name, blob) {
   if (EMBEDDED) {
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement('a'), { href: url, download: name });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBlob(name, blob);
     toast(`Downloaded ${name}`);
     return;
   }
-  const r = await fetch(`/api/export?name=${encodeURIComponent(name)}`, { method: 'POST', body: blob });
-  if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+  const r = await fetchOk(`/api/export?name=${encodeURIComponent(name)}`, { method: 'POST', body: blob });
   toast(`Saved ${(await r.json()).path}`);
 }
 
@@ -1514,28 +1517,22 @@ async function runExport(button, make) {
   try { await make(); } catch (err) { toast(`Export failed: ${err.message}`, true); } finally { button.disabled = false; }
 }
 $('#btnExportData').addEventListener('click', e => runExport(e.currentTarget, () =>
-  saveExport(`layout-${exportStamp()}.json`, new Blob([JSON.stringify(buildExport(), null, 2) + '\n'], { type: 'application/json' }))));
+  saveExport(`layout-${exportStamp()}.json`, new Blob([exportText()], { type: 'application/json' }))));
 $('#btnExportImage').addEventListener('click', e => runExport(e.currentTarget, async () =>
   saveExport(`layout-${exportStamp()}.png`, await renderPlanPng())));
 
 // Export zip / Export site: the server zips the main file (the Export data JSON, or the standalone page as
 // index.html) with the photos it refers to. Both need the server, so a standalone page hides them.
+// The site is built from the placements posted here, i.e. the layout as shown, not the file on disk.
 async function saveExportZip(name, content, body) {
-  const r = await fetch(`/api/export-zip?name=${encodeURIComponent(name)}&content=${content}`, { method: 'POST', body });
-  if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+  const r = await fetchOk(`/api/export-zip?name=${encodeURIComponent(name)}&content=${content}`, { method: 'POST', body });
   const { path, photos } = await r.json();
   toast(`Saved ${path} (${photos} photo${photos === 1 ? '' : 's'})`);
 }
 $('#btnExportZip').addEventListener('click', e => runExport(e.currentTarget, () =>
-  saveExportZip(`layout-${exportStamp()}.zip`, 'data', JSON.stringify(buildExport(), null, 2) + '\n')));
-$('#btnExportSite').addEventListener('click', e => runExport(e.currentTarget, async () => {
-  // The site is built from furniture_placements.json on disk, so write any pending edit first.
-  clearTimeout(saveTimer);
-  await (saveChain = saveChain.then(writePlacements));
-  if (state.saveError) throw new Error(`could not save the layout first: ${state.saveError}`);
-  await saveExportZip(`layout-site-${exportStamp()}.zip`, 'site');
-}));
-if (EMBEDDED) { $('#btnExportZip').hidden = true; $('#btnExportSite').hidden = true; }
+  saveExportZip(`layout-${exportStamp()}.zip`, 'data', exportText())));
+$('#btnExportSite').addEventListener('click', e => runExport(e.currentTarget, () =>
+  saveExportZip(`layout-site-${exportStamp()}.zip`, 'site', placementsText())));
 
 // ==== Standalone page ====
 // A page built by `server.js --build` has no server: the project files come from EMBEDDED and edits
@@ -1572,14 +1569,15 @@ function loadEmbedded(useSaved = true) {
   updateSaveStatus();
 }
 
-function downloadPlacements() {
-  const url = URL.createObjectURL(new Blob([placementsText()], { type: 'application/json' }));
-  const a = Object.assign(document.createElement('a'), { href: url, download: PLACEMENTS_FILE });
+function downloadBlob(name, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
   document.body.append(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+const downloadPlacements = () => downloadBlob(PLACEMENTS_FILE, new Blob([placementsText()], { type: 'application/json' }));
 
 function resetToBuilt() {
   if (!confirm('Discard the edits saved in this browser and go back to the layout this page was built with?')) return;
@@ -1593,6 +1591,8 @@ function initStandalone() {
   $('#btnReload').hidden = true;
   $('#btnDownload').hidden = false;
   $('#btnReset').hidden = false;
+  $('#btnExportZip').hidden = true;
+  $('#btnExportSite').hidden = true;
   $('#btnDownload').addEventListener('click', downloadPlacements);
   $('#btnReset').addEventListener('click', resetToBuilt);
   loadEmbedded();
@@ -1601,8 +1601,7 @@ function initStandalone() {
 // ==== Loading ====
 async function fetchProject(announce = false) {
   try {
-    const r = await fetch('/api/project', { cache: 'no-store' });
-    if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+    const r = await fetchOk('/api/project', { cache: 'no-store' });
     const { files, dataDir, photos } = await r.json();
     state.dataDir = dataDir || null;
     state.photos = isObj(photos) ? photos : {};

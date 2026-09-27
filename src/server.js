@@ -106,7 +106,8 @@ const IMAGE_TYPES = { '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'ima
 const MAX_BODY = 1024 * 1024;
 const MAX_EXPORT = 50 * 1024 * 1024; // a plan PNG runs to a few MB
 // Exports are written straight into OUTPUT_DIR, so only the page's own timestamped names are accepted.
-const EXPORT_NAME = /^layout-(site-)?\d{8}T\d{6}Z\.(json|png|zip)$/;
+const EXPORT_NAME = /^layout-\d{8}T\d{6}Z\.(json|png)$/;
+const ZIP_NAME = /^layout-(site-)?\d{8}T\d{6}Z\.zip$/;
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
@@ -203,12 +204,27 @@ function readBody(req, limit = MAX_BODY) {
   });
 }
 
+const badRequest = msg => Object.assign(new Error(msg), { status: 400 });
+function parseJson(text) {
+  try { return JSON.parse(text); } catch (err) { throw badRequest(`invalid JSON: ${err.message}`); }
+}
+// A placements document as the page posts it; throws a 400 otherwise.
+function parsePlacements(text) {
+  const doc = parseJson(text);
+  if (!doc || typeof doc !== 'object' || typeof doc.placements !== 'object') throw badRequest('expected an object with "placements"');
+  return doc;
+}
+
+// Write a file straight into OUTPUT_DIR (created if missing) and return its path.
+async function writeOutput(name, data) {
+  await fsp.mkdir(OUTPUT_DIR, { recursive: true });
+  const target = path.join(OUTPUT_DIR, name);
+  await fsp.writeFile(target, data);
+  return target;
+}
+
 async function writePlacements(text) {
-  let doc;
-  try { doc = JSON.parse(text); } catch (err) { throw Object.assign(new Error(`invalid JSON: ${err.message}`), { status: 400 }); }
-  if (!doc || typeof doc !== 'object' || typeof doc.placements !== 'object') {
-    throw Object.assign(new Error('expected an object with "placements"'), { status: 400 });
-  }
+  const doc = parsePlacements(text);
   await fsp.mkdir(OUTPUT_DIR, { recursive: true });
   const target = path.join(OUTPUT_DIR, PLACEMENTS_FILE);
   const body = JSON.stringify(doc, null, 2) + '\n';
@@ -258,6 +274,7 @@ function send(res, status, body, type = 'text/plain; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
   res.end(body);
 }
+const sendJson = (res, value) => send(res, 200, JSON.stringify(value), 'application/json; charset=utf-8');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -269,8 +286,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, await fsp.readFile(path.join(APP_DIR, VIEW3D_FILE)), 'text/html; charset=utf-8');
     }
     if (req.method === 'GET' && url.pathname === '/api/project') {
-      const body = { dataDir: DATA_DIR, files: await readProject(), photos: await readPhotos() };
-      return send(res, 200, JSON.stringify(body), 'application/json; charset=utf-8');
+      return sendJson(res, { dataDir: DATA_DIR, files: await readProject(), photos: await readPhotos() });
     }
     if (req.method === 'GET' && url.pathname.startsWith('/photos/')) {
       const file = path.join(PHOTOS_DIR, decodeURIComponent(url.pathname.slice('/photos/'.length)));
@@ -286,18 +302,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/export') {
       const name = url.searchParams.get('name') || '';
       if (!EXPORT_NAME.test(name)) return send(res, 400, `bad export name "${name}"`);
-      const body = await readBody(req, MAX_EXPORT);
-      await fsp.mkdir(OUTPUT_DIR, { recursive: true });
-      const target = path.join(OUTPUT_DIR, name);
-      await fsp.writeFile(target, body);
-      return send(res, 200, JSON.stringify({ path: target }), 'application/json; charset=utf-8');
+      return sendJson(res, { path: await writeOutput(name, await readBody(req, MAX_EXPORT)) });
     }
     if (req.method === 'POST' && url.pathname === '/api/export-zip') {
       const name = url.searchParams.get('name') || '', content = url.searchParams.get('content');
-      if (!EXPORT_NAME.test(name) || !name.endsWith('.zip')) return send(res, 400, `bad export name "${name}"`);
+      if (!ZIP_NAME.test(name)) return send(res, 400, `bad export name "${name}"`);
       if (content !== 'data' && content !== 'site') return send(res, 400, 'content must be "data" or "site"');
-      const result = await exportZip(name, content, await readBody(req, MAX_EXPORT));
-      return send(res, 200, JSON.stringify(result), 'application/json; charset=utf-8');
+      return sendJson(res, await exportZip(name, content, await readBody(req, MAX_EXPORT)));
     }
     if (req.method === 'GET' && url.pathname === '/api/events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
@@ -322,9 +333,14 @@ function injectHead(html, snippet, file) {
   return html.replace(/<\/head>/i, () => `${snippet}\n</head>`);
 }
 
-// The standalone page: used by --build and by the page's Export site button.
-async function buildPage() {
-  const files = await readProject();
+// The standalone page: used by --build and by the page's Export site button, which posts the placements
+// it shows (placementsText) so the site doesn't depend on the last autosave having reached the disk.
+async function buildPage(placementsText) {
+  let files = await readProject();
+  if (placementsText != null) {
+    parsePlacements(placementsText);
+    files = files.filter(f => f.path !== PLACEMENTS_FILE).concat({ path: PLACEMENTS_FILE, text: placementsText });
+  }
   const photos = await readPhotos();
   const room3d = injectHead(await fsp.readFile(path.join(APP_DIR, VIEW3D_FILE), 'utf8'),
     '<script>window.FURNITURE_LAYOUT_STANDALONE = true;</script>', VIEW3D_FILE);
@@ -336,16 +352,15 @@ async function buildPage() {
 
 async function build() {
   const { page, files } = await buildPage();
-  await fsp.mkdir(OUTPUT_DIR, { recursive: true });
-  const target = path.join(OUTPUT_DIR, PAGE_FILE);
-  await fsp.writeFile(target, page, 'utf8');
+  const target = await writeOutput(PAGE_FILE, page);
   const placed = files.some(f => f.path === PLACEMENTS_FILE) ? `with ${PLACEMENTS_FILE}` : `no ${PLACEMENTS_FILE} yet`;
   console.log(`Read ${files.length} files from ${DATA_DIR} (${placed})`);
   console.log(`Wrote ${target} (${(Buffer.byteLength(page) / 1024).toFixed(0)} KB)`);
 }
 
 // ---- Zip exports ----
-// A minimal zip writer (no dependencies): deflate where it helps, store otherwise (WebP/JPEG don't shrink).
+// A minimal zip writer (no dependencies): images are stored as they are (WebP/JPEG/PNG don't shrink, and
+// deflating MBs of them would block the server), everything else is deflated where it helps.
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n;
   for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
@@ -364,7 +379,7 @@ function makeZip(entries) {
   let offset = 0;
   for (const { name, data } of entries) {
     const nameBuf = Buffer.from(name, 'utf8');
-    const deflated = zlib.deflateRawSync(data);
+    const deflated = IMAGE_TYPES[path.extname(name).toLowerCase()] ? data : zlib.deflateRawSync(data);
     const method = deflated.length < data.length ? 8 : 0;
     const body = method ? deflated : data;
     const crc = crc32(data);
@@ -409,29 +424,25 @@ function makeZip(entries) {
 // Shared by Export zip and Export site: the main file plus the photos it refers to. Photo URLs are the
 // relative "photos/..." ones readPhotos() hands out, so they keep the same paths inside the zip.
 async function writeExportZip(name, main, photoUrls) {
-  const entries = [main];
-  for (const u of new Set(photoUrls)) {
+  const photos = await Promise.all([...new Set(photoUrls)].map(async u => {
     const rel = u.split('/').map(decodeURIComponent);
-    try { entries.push({ name: rel.join('/'), data: await fsp.readFile(path.join(OUTPUT_DIR, ...rel)) }); }
-    catch (err) { if (err.code !== 'ENOENT') throw err; }
-  }
-  await fsp.mkdir(OUTPUT_DIR, { recursive: true });
-  const target = path.join(OUTPUT_DIR, name);
-  await fsp.writeFile(target, makeZip(entries));
-  return { path: target, photos: entries.length - 1 };
+    try { return { name: rel.join('/'), data: await fsp.readFile(path.join(OUTPUT_DIR, ...rel)) }; }
+    catch (err) { if (err.code !== 'ENOENT') throw err; return null; }
+  }));
+  const entries = [main, ...photos.filter(Boolean)];
+  return { path: await writeOutput(name, makeZip(entries)), photos: entries.length - 1 };
 }
 
 // content=data: the page's Export data JSON (request body) and photos of the products listed in it;
-// content=site: the --build page as index.html and every product photo it can show.
+// content=site: the --build page as index.html (with the posted placements) and every product photo it can show.
 async function exportZip(name, content, body) {
-  const photos = await readPhotos();
   if (content === 'data') {
-    let doc;
-    try { doc = JSON.parse(body.toString('utf8')); } catch (err) { throw Object.assign(new Error(`invalid JSON: ${err.message}`), { status: 400 }); }
+    const doc = parseJson(body.toString('utf8'));
+    const photos = await readPhotos();
     const files = (Array.isArray(doc && doc.products) ? doc.products : []).map(p => String(p && p.file || '').replace(/\.json$/i, ''));
     return writeExportZip(name, { name: name.replace(/\.zip$/, '.json'), data: body }, files.map(f => photos[f]).filter(Boolean));
   }
-  const site = await buildPage();
+  const site = await buildPage(body.toString('utf8'));
   return writeExportZip(name, { name: 'index.html', data: Buffer.from(site.page, 'utf8') }, Object.values(site.photos));
 }
 
