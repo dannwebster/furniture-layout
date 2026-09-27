@@ -2,9 +2,11 @@
 // Local server for the furniture layout page. No dependencies.
 //   GET  /                 the layout page
 //   GET  /room3d.html      the 3D view (opened as a popup from the layout page)
-//   GET  /api/project      room_layout.json, furniture_placements.json, material_colors.json and every .json under furniture/ and rugs/
-//   PUT  /api/placements   write furniture_placements.json (POST also accepted, for sendBeacon)
-//   GET  /api/events       server-sent events: "change" when project files change, "page" when a page changes
+//   GET  /api/project      data/room_layout.json, data/material_colors.json, every .json under data/furniture/ and
+//                          data/rugs/ (paths relative to data/), plus output/furniture_placements.json
+//   PUT  /api/placements   write output/furniture_placements.json (POST also accepted, for sendBeacon)
+//   GET  /api/events       server-sent events: "change" when data files change, "page" when a page changes
+// DATA_DIR and OUTPUT_DIR env vars override where input is read from and placements are written to.
 'use strict';
 
 const http = require('http');
@@ -13,23 +15,25 @@ const fsp = fs.promises;
 const path = require('path');
 const { spawn } = require('child_process');
 
-const ROOT = __dirname;
+const APP_DIR = __dirname;
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
+const OUTPUT_DIR = path.resolve(process.env.OUTPUT_DIR || path.join(__dirname, '..', 'output'));
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 const PAGE_FILE = 'furniture-layout.html';
 const VIEW3D_FILE = 'room3d.html';
 const ROOM_FILE = 'room_layout.json';
 const COLORS_FILE = 'material_colors.json';
-const PRODUCT_DIRS = ['furniture', 'rugs']; // one JSON file per product, any depth
-const PLACEMENTS_FILE = 'furniture_placements.json';
+const PRODUCT_DIRS = ['furniture', 'rugs']; // under DATA_DIR; one JSON file per product, any depth
+const PLACEMENTS_FILE = 'furniture_placements.json'; // under OUTPUT_DIR
 const MAX_BODY = 1024 * 1024;
 
-// Relative posix paths of every .json file under dir (recursive, skipping dot-folders).
+// Relative posix paths (from DATA_DIR) of every .json file under dir (recursive, skipping dot-folders).
 async function listJson(dir) {
   const out = [];
   async function walk(rel) {
     let entries;
-    try { entries = await fsp.readdir(path.join(ROOT, rel), { withFileTypes: true }); }
+    try { entries = await fsp.readdir(path.join(DATA_DIR, rel), { withFileTypes: true }); }
     catch (err) { if (err.code === 'ENOENT') return; throw err; }
     for (const e of entries) {
       if (e.name.startsWith('.')) continue;
@@ -44,12 +48,12 @@ async function listJson(dir) {
 
 async function readProject() {
   const files = [];
-  const add = async rel => {
-    try { files.push({ path: rel, text: await fsp.readFile(path.join(ROOT, rel), 'utf8') }); }
+  const add = async (rel, dir = DATA_DIR) => {
+    try { files.push({ path: rel, text: await fsp.readFile(path.join(dir, rel), 'utf8') }); }
     catch (err) { if (err.code !== 'ENOENT') throw err; }
   };
   await add(ROOM_FILE);
-  await add(PLACEMENTS_FILE);
+  await add(PLACEMENTS_FILE, OUTPUT_DIR);
   await add(COLORS_FILE);
   for (const dir of PRODUCT_DIRS) for (const rel of await listJson(dir)) await add(rel);
   return files;
@@ -75,7 +79,8 @@ async function writePlacements(text) {
   if (!doc || typeof doc !== 'object' || typeof doc.placements !== 'object') {
     throw Object.assign(new Error('expected an object with "placements"'), { status: 400 });
   }
-  const target = path.join(ROOT, PLACEMENTS_FILE);
+  await fsp.mkdir(OUTPUT_DIR, { recursive: true });
+  const target = path.join(OUTPUT_DIR, PLACEMENTS_FILE);
   const body = JSON.stringify(doc, null, 2) + '\n';
   const tmp = `${target}.${process.pid}.tmp`;
   await fsp.writeFile(tmp, body, 'utf8');
@@ -94,21 +99,24 @@ function broadcast(event) {
   for (const res of clients) res.write(`event: ${event}\ndata: {}\n\n`);
 }
 
+// OUTPUT_DIR isn't watched: our own writes to furniture_placements.json are deliberately not broadcast.
 let changeTimer = null, pageTimer = null;
-function onFsChange(filename) {
+function onDataChange(filename) {
   if (!filename) return;
   const rel = String(filename).replace(/\\/g, '/');
-  if (rel === PAGE_FILE || rel === VIEW3D_FILE) {
-    clearTimeout(pageTimer);
-    pageTimer = setTimeout(() => broadcast('page'), 150);
-  } else if (rel === ROOM_FILE || rel === COLORS_FILE || PRODUCT_DIRS.some(d => rel === d || rel.startsWith(d + '/'))) {
-    // Our own writes to furniture_placements.json are deliberately not broadcast.
+  if (rel === ROOM_FILE || rel === COLORS_FILE || PRODUCT_DIRS.some(d => rel === d || rel.startsWith(d + '/'))) {
     clearTimeout(changeTimer);
     changeTimer = setTimeout(() => broadcast('change'), 150);
   }
 }
+function onAppChange(filename) {
+  if (filename !== PAGE_FILE && filename !== VIEW3D_FILE) return;
+  clearTimeout(pageTimer);
+  pageTimer = setTimeout(() => broadcast('page'), 150);
+}
 try {
-  fs.watch(ROOT, { recursive: true }, (_type, filename) => onFsChange(filename));
+  fs.watch(DATA_DIR, { recursive: true }, (_type, filename) => onDataChange(filename));
+  fs.watch(APP_DIR, (_type, filename) => onAppChange(filename && String(filename)));
 } catch (err) {
   console.warn(`File watching unavailable (${err.message}); use "Reload files" in the page.`);
 }
@@ -123,10 +131,10 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   try {
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/' + PAGE_FILE)) {
-      return send(res, 200, await fsp.readFile(path.join(ROOT, PAGE_FILE)), 'text/html; charset=utf-8');
+      return send(res, 200, await fsp.readFile(path.join(APP_DIR, PAGE_FILE)), 'text/html; charset=utf-8');
     }
     if (req.method === 'GET' && url.pathname === '/' + VIEW3D_FILE) {
-      return send(res, 200, await fsp.readFile(path.join(ROOT, VIEW3D_FILE)), 'text/html; charset=utf-8');
+      return send(res, 200, await fsp.readFile(path.join(APP_DIR, VIEW3D_FILE)), 'text/html; charset=utf-8');
     }
     if (req.method === 'GET' && url.pathname === '/api/project') {
       return send(res, 200, JSON.stringify({ files: await readProject() }), 'application/json; charset=utf-8');
@@ -155,7 +163,8 @@ setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 25000
 server.listen(PORT, HOST, () => {
   const url = `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/`;
   console.log(`Furniture layout running at ${url}`);
-  console.log(`Reading ${ROOM_FILE} and ${PRODUCT_DIRS.map(d => d + '/**/*.json').join(', ')}; saving to ${PLACEMENTS_FILE}`);
+  console.log(`Reading ${ROOM_FILE} and ${PRODUCT_DIRS.map(d => d + '/**/*.json').join(', ')} from ${DATA_DIR}`);
+  console.log(`Saving ${PLACEMENTS_FILE} to ${OUTPUT_DIR}`);
   if (process.argv.includes('--open')) {
     const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
       : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];

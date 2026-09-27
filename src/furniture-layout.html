@@ -642,7 +642,7 @@ function loadProject(files) {
       else products.push(parseFurniture(doc, f.path));
     } catch (err) { errors.push(`${f.path}: ${err.message}`); }
   }
-  if (!roomFile) errors.unshift(`${ROOM_FILE} not found next to server.js`);
+  if (!roomFile) errors.unshift(`${ROOM_FILE} not found in data/`);
   if (errors.length) toast(errors.join(' · '), true);
   if (!room) { state.loadError = errors[0] || `could not read ${ROOM_FILE}`; refreshAll(); return false; }
   state.loadError = null;
@@ -1253,7 +1253,7 @@ function renderEmpty() {
     card.innerHTML = `<h2 style="margin-top:0">Start the server</h2>
       <p>This page is served by the Node app. In the project folder run:</p>
       <p><kbd>npm start</kbd></p>
-      <p class="muted">It opens <b>http://127.0.0.1:3000/</b> and loads ${ROOM_FILE} and everything under ${FURNITURE_DIR}/ and ${RUG_DIR}/.</p>`;
+      <p class="muted">It opens <b>http://127.0.0.1:3000/</b> and loads data/${ROOM_FILE} and everything under data/${FURNITURE_DIR}/ and data/${RUG_DIR}/.</p>`;
   } else if (state.loadError) {
     card.innerHTML = `<h2 style="margin-top:0">Couldn't load the project</h2>
       <p>${escapeHtml(state.loadError)}</p><p class="muted">Fix the file and it will reload automatically.</p>`;

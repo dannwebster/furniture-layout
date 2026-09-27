@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// Download product photos for every file under furniture/ and rugs/. No dependencies.
+// Download product photos for every file under data/furniture/ and data/rugs/. No dependencies.
 //   node fetch-photos.js [filter...] [--force] [--out <dir>]
-// Photos land in photos/<same path as the product file, minus .json>/, e.g.
-//   photos/furniture/room_and_board/hudson_dresser/01-product.webp
+// Photos land in data/photos/<same path as the product file, minus .json>/, e.g.
+//   data/photos/furniture/room_and_board/hudson_dresser/01-product.webp
 // alongside a sources.json listing where each file came from. Re-runs skip photos already on disk
 // (by source URL); --force downloads everything again. Filters match against the product path.
+// DATA_DIR env var overrides where product files are read from (default ../data).
 'use strict';
 
 const crypto = require('crypto');
@@ -12,7 +13,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 
-const ROOT = __dirname;
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
 const PRODUCT_DIRS = ['furniture', 'rugs'];
 const MANIFEST = 'sources.json';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36';
@@ -25,7 +26,7 @@ const SCENE7_MAX = 4000; // largest width/height Scene7 will serve
 const argv = process.argv.slice(2);
 const force = argv.includes('--force');
 const outIdx = argv.indexOf('--out');
-const OUT = path.resolve(ROOT, outIdx >= 0 ? argv[outIdx + 1] : 'photos');
+const OUT = outIdx >= 0 ? path.resolve(argv[outIdx + 1]) : path.join(DATA_DIR, 'photos');
 const filters = argv.filter((a, i) => !a.startsWith('--') && !(outIdx >= 0 && i === outIdx + 1));
 
 // ---- Helpers ----
@@ -33,7 +34,7 @@ async function listJson(dir) {
   const out = [];
   async function walk(rel) {
     let entries;
-    try { entries = await fsp.readdir(path.join(ROOT, rel), { withFileTypes: true }); }
+    try { entries = await fsp.readdir(path.join(DATA_DIR, rel), { withFileTypes: true }); }
     catch (err) { if (err.code === 'ENOENT') return; throw err; }
     for (const e of entries) {
       if (e.name.startsWith('.')) continue;
@@ -197,7 +198,7 @@ async function readManifest(dir) {
 }
 
 async function processProduct(rel) {
-  const doc = JSON.parse(await fsp.readFile(path.join(ROOT, rel), 'utf8'));
+  const doc = JSON.parse(await fsp.readFile(path.join(DATA_DIR, rel), 'utf8'));
   const meta = doc.metadata || {};
   const rawUrl = meta.source_variant_url || meta.product_url;
   const name = doc.furniture?.name || rel;
@@ -272,7 +273,7 @@ async function processProduct(rel) {
   if (filters.length) products = products.filter(rel => filters.some(f => rel.toLowerCase().includes(f.toLowerCase())));
   if (!products.length) { console.error('No product files matched.'); process.exit(1); }
 
-  console.log(`Fetching photos for ${products.length} product(s) into ${path.relative(ROOT, OUT) || '.'}${path.sep}`);
+  console.log(`Fetching photos for ${products.length} product(s) into ${path.relative(process.cwd(), OUT) || '.'}${path.sep}`);
   const started = Date.now();
   let failures = 0;
   await Promise.all(products.map(async rel => {
