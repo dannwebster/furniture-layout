@@ -1,0 +1,107 @@
+{
+  "units": "inches",
+  "coordinate_system": {
+    "origin": "back_left_floor_corner",
+    "x_axis": "right",
+    "y_axis": "forward",
+    "z_axis": "up"
+  },
+  "furniture": {
+    "name": "Woodwind 32w 17d 86h Two-Door Bookcase",
+    "collection": "Woodwind",
+    "type": "bookcase",
+    "manufacturer": "Room & Board",
+    "item_number": "650892",
+    "dimensions": {
+      "width": 32,
+      "depth": 17,
+      "height": 86
+    },
+    "door_count": 2,
+    "shelf_count": 5
+  },
+  "geometry": {
+    "bounding_box": {
+      "min": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "max": {
+        "x": 32,
+        "y": 17,
+        "z": 86
+      }
+    },
+    "open_space": {
+      "count": 1,
+      "width": 28.5,
+      "depth": 15,
+      "height": 54.75
+    },
+    "space_behind_doors": {
+      "count": 1,
+      "width": 28.5,
+      "depth": 15,
+      "height": 25.5
+    },
+    "cord_openings": {
+      "count": 3,
+      "diameter": 2
+    }
+  },
+  "materials": {
+    "case": {
+      "wood": "walnut",
+      "finish": "lacquer",
+      "features": [
+        "solid wood and wood veneer",
+        "slightly lightens over time",
+        "lacquer finish",
+        "responsibly made",
+        "sustainable materials"
+      ]
+    },
+    "hardware": {
+      "style": "small cylinder",
+      "material": "stainless steel",
+      "features": [
+        "fade resistant"
+      ]
+    }
+  },
+  "construction": {
+    "case": "solid wood and wood veneer on engineered wood with unfinished back made of wood veneer on engineered wood",
+    "doors": {
+      "construction": "wood veneer on engineered wood",
+      "hinges": "fully adjustable",
+      "opening_degrees": 110,
+      "closure": "interior latch"
+    },
+    "shelves": "five adjustable wood",
+    "features": [
+      "adjustable leveling feet"
+    ],
+    "includes": [
+      "anti-tip safety hardware"
+    ]
+  },
+  "metadata": {
+    "approximate_product_weight_lbs": 164,
+    "product_origin": "Pennsylvania, United States",
+    "material_origin": "United States",
+    "price": {
+      "currency": "USD",
+      "configured_price": 2199,
+      "price_source": "user_provided",
+      "price_as_of": "2026-09-26"
+    },
+    "product_url": "https://www.roomandboard.com/catalog/storage-and-entryway/bookcases-and-wall-units/woodwind-bookcases/650892?CHAR_650892_WOODW_COLL_WOOD=WA&CHAR_650892_WOODW_COLL_HDWR=SCYLSS",
+    "source_retrieved": "2026-09-26",
+    "notes": [
+      "Configured as the 32w 17d 86h Woodwind two-door bookcase in walnut.",
+      "Configured with small cylinder stainless steel hardware.",
+      "Open shelving above, with two doors enclosing the lower section."
+    ]
+  }
+}
