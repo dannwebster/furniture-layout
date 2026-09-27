@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Local server for the furniture layout page. No dependencies.
+//   node server.js [data-dir] [--output <dir>] [--open]
 //   GET  /                 the layout page
 //   GET  /room3d.html      the 3D view (opened as a popup from the layout page)
-//   GET  /api/project      data/room_layout.json, data/material_colors.json, every .json under data/furniture/ and
-//                          data/rugs/ (paths relative to data/), plus output/furniture_placements.json
-//   PUT  /api/placements   write output/furniture_placements.json (POST also accepted, for sendBeacon)
+//   GET  /api/project      <data>/room_layout.json, <data>/material_colors.json, every .json under <data>/furniture/
+//                          and <data>/rugs/ (paths relative to the data dir), plus furniture_placements.json
+//   PUT  /api/placements   write <output>/furniture_placements.json (POST also accepted, for sendBeacon)
 //   GET  /api/events       server-sent events: "change" when data files change, "page" when a page changes
-// DATA_DIR and OUTPUT_DIR env vars override where input is read from and placements are written to.
+// The data files live outside the program: pass the folder on the command line (or set DATA_DIR).
 'use strict';
 
 const http = require('http');
@@ -15,9 +16,73 @@ const fsp = fs.promises;
 const path = require('path');
 const { spawn } = require('child_process');
 
+const USAGE = `Usage: node server.js [data-dir] [options]
+
+  data-dir             folder holding room_layout.json, material_colors.json, furniture/ and rugs/
+                       (same as --data; default: $DATA_DIR, else ../data next to the program)
+
+Options:
+  -d, --data <dir>     where the input files are read from
+  -o, --output <dir>   where furniture_placements.json is written
+                       (default: $OUTPUT_DIR, else <data-dir>/../output when the data folder is
+                       named "data", else <data-dir>/output)
+      --open           open the page in a browser once the server is listening
+  -h, --help           show this message
+
+Environment: PORT (default 3000), HOST (default 127.0.0.1), DATA_DIR, OUTPUT_DIR.
+Command-line options win over the environment.`;
+
+function fail(message) {
+  console.error(`server.js: ${message}`);
+  console.error(`Run "node server.js --help" for usage.`);
+  process.exit(1);
+}
+
+function parseArgs(argv) {
+  const opts = { data: null, output: null, open: false, help: false };
+  const positional = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    const eq = arg.startsWith('--') ? arg.indexOf('=') : -1;
+    const flag = eq > 1 ? arg.slice(0, eq) : arg;
+    const inline = eq > 1 ? arg.slice(eq + 1) : null;
+    const value = () => {
+      const v = inline !== null ? inline : argv[++i];
+      if (!v) fail(`${flag} needs a directory`);
+      return v;
+    };
+    switch (flag) {
+      case '-d': case '--data': opts.data = value(); break;
+      case '-o': case '--output': opts.output = value(); break;
+      case '--open': opts.open = true; break;
+      case '-h': case '--help': opts.help = true; break;
+      default:
+        if (flag.startsWith('-')) fail(`unknown option ${flag}`);
+        positional.push(flag);
+    }
+  }
+  if (positional.length > 1) fail(`expected one data directory, got ${positional.length}`);
+  if (positional.length) {
+    if (opts.data) fail('the data directory was given twice');
+    opts.data = positional[0];
+  }
+  return opts;
+}
+
+// Placements belong next to the data they describe: a sibling of a folder literally named "data"
+// (which keeps this repo's own data/ + output/ layout), otherwise inside the data folder itself.
+function defaultOutputDir(dataDir) {
+  return path.basename(dataDir).toLowerCase() === 'data'
+    ? path.join(dataDir, '..', 'output')
+    : path.join(dataDir, 'output');
+}
+
+const args = parseArgs(process.argv.slice(2));
+if (args.help) { console.log(USAGE); process.exit(0); }
+
 const APP_DIR = __dirname;
-const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
-const OUTPUT_DIR = path.resolve(process.env.OUTPUT_DIR || path.join(__dirname, '..', 'output'));
+const DATA_DIR = path.resolve(args.data || process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
+const OUTPUT_DIR = path.resolve(args.output || process.env.OUTPUT_DIR || defaultOutputDir(DATA_DIR));
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 const PAGE_FILE = 'furniture-layout.html';
@@ -27,6 +92,17 @@ const COLORS_FILE = 'material_colors.json';
 const PRODUCT_DIRS = ['furniture', 'rugs']; // under DATA_DIR; one JSON file per product, any depth
 const PLACEMENTS_FILE = 'furniture_placements.json'; // under OUTPUT_DIR
 const MAX_BODY = 1024 * 1024;
+
+// Fail loudly on a bad path rather than serving an empty room.
+try {
+  if (!fs.statSync(DATA_DIR).isDirectory()) fail(`not a directory: ${DATA_DIR}`);
+} catch (err) {
+  if (err.code === 'ENOENT') fail(`data directory not found: ${DATA_DIR}`);
+  fail(`cannot read data directory ${DATA_DIR}: ${err.message}`);
+}
+if (!fs.existsSync(path.join(DATA_DIR, ROOM_FILE))) {
+  console.warn(`Warning: no ${ROOM_FILE} in ${DATA_DIR}`);
+}
 
 // Relative posix paths (from DATA_DIR) of every .json file under dir (recursive, skipping dot-folders).
 async function listJson(dir) {

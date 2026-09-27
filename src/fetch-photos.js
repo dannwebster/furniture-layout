@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Download product photos for every file under data/furniture/ and data/rugs/. No dependencies.
-//   node fetch-photos.js [filter...] [--force] [--out <dir>]
-// Photos land in data/photos/<same path as the product file, minus .json>/, e.g.
-//   data/photos/furniture/room_and_board/hudson_dresser/01-product.webp
+// Download product photos for every file under <data>/furniture/ and <data>/rugs/. No dependencies.
+//   node fetch-photos.js [filter...] [--data <dir>] [--force] [--out <dir>]
+// Photos land in <data>/photos/<same path as the product file, minus .json>/, e.g.
+//   photos/furniture/room_and_board/hudson_dresser/01-product.webp
 // alongside a sources.json listing where each file came from. Re-runs skip photos already on disk
 // (by source URL); --force downloads everything again. Filters match against the product path.
-// DATA_DIR env var overrides where product files are read from (default ../data).
+// --data (or the DATA_DIR env var) says where the product files live; default ../data.
 'use strict';
 
 const crypto = require('crypto');
@@ -13,7 +13,6 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 
-const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
 const PRODUCT_DIRS = ['furniture', 'rugs'];
 const MANIFEST = 'sources.json';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36';
@@ -25,9 +24,19 @@ const SCENE7_MAX = 4000; // largest width/height Scene7 will serve
 // ---- CLI ----
 const argv = process.argv.slice(2);
 const force = argv.includes('--force');
+const dataIdx = Math.max(argv.indexOf('--data'), argv.indexOf('-d'));
 const outIdx = argv.indexOf('--out');
-const OUT = outIdx >= 0 ? path.resolve(argv[outIdx + 1]) : path.join(DATA_DIR, 'photos');
-const filters = argv.filter((a, i) => !a.startsWith('--') && !(outIdx >= 0 && i === outIdx + 1));
+function optionValue(idx, flag) {
+  const v = argv[idx + 1];
+  if (!v || v.startsWith('-')) { console.error(`fetch-photos: ${flag} needs a directory`); process.exit(1); }
+  return path.resolve(v);
+}
+const DATA_DIR = dataIdx >= 0 ? optionValue(dataIdx, argv[dataIdx])
+  : path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
+const OUT = outIdx >= 0 ? optionValue(outIdx, '--out') : path.join(DATA_DIR, 'photos');
+// Filters are the bare words: drop every flag and the directory that follows --data / --out.
+const takenValues = new Set([dataIdx, outIdx].filter(i => i >= 0).map(i => i + 1));
+const filters = argv.filter((a, i) => !a.startsWith('-') && !takenValues.has(i));
 
 // ---- Helpers ----
 async function listJson(dir) {
