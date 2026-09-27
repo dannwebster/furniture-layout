@@ -3,8 +3,8 @@
 //   node fetch-photos.js [filter...] [--data <dir>] [--all] [--force] [--out <dir>]
 // Photos land in <output>/photos/<same path as the product file, minus .json>/, e.g.
 //   output/photos/furniture/room_and_board/hudson_dresser/01-product.webp
-// alongside a sources.json listing where each file came from. Only the main product photo is saved
-// unless --all asks for every photo the page lists. Re-runs skip photos already on disk
+// alongside a sources.json listing where each file came from. Only the main product photo (the render
+// of the URL's configuration) is saved unless --all asks for every photo the page lists. Re-runs skip photos already on disk
 // (by source URL); --force downloads everything again. Filters match against the product path.
 // --data (or DATA_DIR) says where the product files live, default ../data; --out overrides the
 // photo folder, which otherwise follows the output dir server.js would use (OUTPUT_DIR, else the
@@ -152,22 +152,32 @@ function roomAndBoard(html, pageUrl) {
   const model = nd ? JSON.parse(nd[1]).props?.pageProps?.productPageStore?.productPageModel : null;
   const group = model?.productGroup || {};
   const photos = [];
-  // Neither render source reliably shows the URL's CHAR_* configuration: the JSON-LD image does for case goods
-  // (e.g. Hudson nightstand), the override's default product does for upholstery (e.g. Eos fabric). If every
-  // CHAR code appears in the JSON-LD render it's the right one; otherwise keep both, the second as product-alt.
-  // (model.defaultProduct is the collection's default piece, often a different size, so it's not used.)
-  const ldRender = ld ? ldImages(ld)[0] : null;
-  const altRender = model?.configurationOverride?.defaultProduct?.imageData?.imageUrl;
-  const codes = [...new URL(pageUrl).searchParams].filter(([k]) => k.startsWith('CHAR_')).map(([, v]) => v);
-  const ldMatches = ldRender && codes.length && codes.every(c => ldRender.includes(c));
-  const renders = [ldRender, ldMatches ? null : altRender].filter(Boolean);
-  for (const [i, r] of renders.entries()) {
+  // With CHAR_* options in the URL, configurationOverride.imageData[<article>] is the render of exactly that
+  // configuration; otherwise the JSON-LD image is the page's own render. (configurationOverride.defaultProduct
+  // and model.defaultProduct are the unconfigured defaults, often another finish or size, so they're not used.)
+  const article = (new URL(pageUrl).pathname.match(/\/(\d+)\/?$/) || [])[1];
+  const override = model?.configurationOverride;
+  const render = override?.imageData?.[article]?.imageUrl || (ld ? ldImages(ld)[0] : null);
+  if (render) {
     // Composite/render URLs repeat query keys (layer=, src=), so edit the string rather than URLSearchParams.
     // Scene7 refuses anything over SCENE7_MAX on a side (scl=1 403s for large renders), so ask for a bounded box.
-    const bare = r.replace(/([?&])scl=[^&]*(&|$)/, '$1').replace(/[?&]$/, '');
+    const bare = render.replace(/([?&])scl=[^&]*(&|$)/, '$1').replace(/[?&]$/, '');
     const url = bare + (bare.includes('?') ? '&' : '?') + `wid=${SCENE7_MAX}&hei=${SCENE7_MAX}&fit=constrain`;
-    photos.push({ url, kind: i ? 'product-alt' : 'product', caption: ld?.name || model?.defaultProduct?.detailTitle });
+    photos.push({ url, kind: 'product', caption: ld?.name || model?.defaultProduct?.detailTitle });
   }
+  // The configuration the page shows, in words ("Wood: Walnut, Base: Walnut"), to compare with the file.
+  // A selector value can span several questions (fabric + colorway), so it matches only if all of them do.
+  const answers = new Map((override?.defaultConfig || model?.defaultConfig || []).map(c => [c.question, c.answer]));
+  const described = new Set();
+  const parts = [];
+  for (const sel of model?.questionSelectors || []) {
+    const v = (sel.values || []).find(v => v.questionAnswers?.length && v.questionAnswers.every(qa => answers.get(qa.question) === qa.answer));
+    if (!v) continue;
+    parts.push(`${sel.label}: ${v.title}`);
+    for (const qa of v.questionAnswers) described.add(qa.question);
+  }
+  for (const [q, a] of answers) if (!described.has(q)) parts.push(`${q}: ${a}`);
+  const config = parts.join(', ');
   const scene7 = (media, kind) => {
     for (const m of media || []) {
       if (m.type !== 'IMAGE' || !m.image?.src) continue;
@@ -183,7 +193,7 @@ function roomAndBoard(html, pageUrl) {
   scene7(group.dimensionMediaSet, 'dimensions');
   scene7(group.detailMediaSet, 'detail');
   scene7(group.environmentMediaSet, 'room');
-  return { title: ld?.name || group.name, photos };
+  return { title: ld?.name || group.name, config, photos };
 }
 
 // Article: gallery images all live under cdn-images.article.com/products/SKU<id>/; the bare URL is the original.
@@ -233,13 +243,12 @@ async function processProduct(rel) {
   const dir = path.join(OUT, rel.replace(/\.json$/i, ''));
 
   const html = await fetchPage(pageUrl);
-  const { title, photos: found } = scraperFor(pageUrl)(html, pageUrl);
+  const { title, config, photos: found } = scraperFor(pageUrl)(html, pageUrl);
   const seen = new Set();
   const unique = found.filter(p => !seen.has(p.url) && seen.add(p.url));
-  // By default keep only the main render: the first product photo, plus Room & Board's product-alt when it
-  // can't tell which render shows the configuration. --all adds details, dimensions, room scenes and galleries.
+  // By default keep only the main render; --all adds details, dimensions, room scenes and galleries.
   const main = unique.find(p => p.kind === 'product');
-  const photos = all ? unique : unique.filter(p => p === main || p.kind === 'product-alt');
+  const photos = all ? unique : unique.filter(p => p === main);
   if (!photos.length) return { rel, name, error: `no photos found on ${pageUrl}` };
 
   const previous = force ? null : await readManifest(dir);
@@ -263,7 +272,7 @@ async function processProduct(rel) {
     if (error) { results.push({ ...p, error }); continue; }
     const ext = imageExt(buf);
     if (!ext) { results.push({ ...p, error: `not an image (${buf.length} bytes)` }); continue; }
-    // Different URLs sometimes serve the same bytes (e.g. both Room & Board renders).
+    // Different URLs sometimes serve the same bytes (e.g. JSON-LD and og:image variants).
     const hash = crypto.createHash('sha1').update(buf).digest('hex');
     if (hashes.has(hash)) continue;
     hashes.add(hash);
@@ -285,12 +294,13 @@ async function processProduct(rel) {
     name,
     page_url: pageUrl,
     page_title: title || null,
+    ...(config ? { page_config: config } : {}),
     retrieved: new Date().toISOString(),
     photos: ok.map(({ file, kind, caption, alt, url }) => ({ file, kind, caption: caption || null, ...(alt && alt !== caption ? { alt } : {}), url })),
   }, null, 2) + '\n');
 
   return {
-    rel, name, title, dir,
+    rel, name, title, config, dir,
     downloaded: ok.filter(r => !r.skipped).length,
     skipped: ok.filter(r => r.skipped).length,
     failed: results.filter(r => r.error),
@@ -315,6 +325,7 @@ async function processProduct(rel) {
     if (r.error) { failures++; console.log(`  ✗ ${rel}: ${r.error}`); return; }
     const extra = [r.skipped && `${r.skipped} already had`, r.failed.length && `${r.failed.length} failed`].filter(Boolean).join(', ');
     console.log(`  ✓ ${rel}: ${r.downloaded} new${extra ? ` (${extra})` : ''}`);
+    if (r.config) console.log(`      page configured as ${r.config}`);
     // Collection-level URLs can land on a different size/colour than the file describes.
     if (r.title && r.name && slug(r.title) !== slug(r.name)) console.log(`      page shows "${r.title}", file is "${r.name}"`);
     for (const f of r.failed) { failures++; console.log(`      ✗ ${f.kind} ${f.url}: ${f.error}`); }
